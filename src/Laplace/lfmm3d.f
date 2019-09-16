@@ -151,6 +151,7 @@ cc         other temporary variables
 c
         integer i,iert,ifprint,ilev,idim,ier
         double precision time1,time2,omp_get_wtime,second
+        double precision time3,time4
 
 c
 c
@@ -186,8 +187,12 @@ c
        else
          ndiv = nsource+ntarg
        endif
-
-
+c
+c       Hua: Use ndiv = 400 for comparison
+        ndiv = 400
+c       Hua: record the execution time before lfmm3dmain
+        call cpu_time(time3)
+C$      time3=omp_get_wtime()
 c
 cc      set tree flags
 c 
@@ -392,6 +397,9 @@ c     Compute length of expansions at each level
          call l3dterms(eps,nterms(i))
          if(nterms(i).gt.nmax) nmax = nterms(i)
       enddo
+c
+      if(ifprint.ge.1) print *, "[DEBUG] nmax = ", nmax
+      if(ifprint.ge.1) call prinf('nterms=*',nterms,nlevels)
 c       
 c     Multipole and local expansions will be held in workspace
 c     in locations pointed to by array iaddr(2,nboxes).
@@ -440,7 +448,14 @@ c
 
 c     Memory allocation is complete. 
 c     Call main fmm routine
-
+c
+c       Hua: record the execution time before lfmm3dmain
+        call cpu_time(time4)
+C$      time4=omp_get_wtime()
+        if( ifprint .eq. 1 ) call prin2('time before fmm main=*',
+     1   time4-time3,1)
+c
+c
       call cpu_time(time1)
 C$      time1=omp_get_wtime()
       call lfmm3dmain(nd,eps,
@@ -654,7 +669,7 @@ c     Prints timing breakdown and other things if ifprint=1.
 c     Prints timing breakdown, list information, 
 c     and other things if ifprint=2.
 c       
-      ifprint=0
+      ifprint=1
       
 
 c     Initialize routines for plane wave mp loc translation
@@ -747,9 +762,9 @@ c
       bigint = nboxes
       bigint = bigint*6
       bigint = bigint*nexptotp*nd
-
+c
       if(ifprint.ge.1) print *, "mexp memory=",bigint/1.0d9
-
+c
       allocate(mexp(nd,nexptotp,nboxes,6),stat=iert)
       if(iert.ne.0) then
         print *, "Cannot allocate pw expansion workspace"

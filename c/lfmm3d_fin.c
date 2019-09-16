@@ -63,7 +63,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < npoint; i++) charge[i] = rand01();
 
 
-    cprin_message("This code is an example c driver for lfmm3d_t_c_p");
+    cprin_message("[INFO] lfmm3d_t_c_p: file coordinate input, source = target");
     cprin_skipline(2);
 
     lfmm3d_t_c_p_(&eps, &npoint, coord, charge, &npoint, coord, poten);
@@ -72,7 +72,6 @@ int main(int argc, char **argv)
         double st = get_wtime_sec();
         lfmm3d_t_c_p_(&eps, &npoint, coord, charge, &npoint, coord, poten);
         double et = get_wtime_sec();
-        printf("lfmm3d_t_c_p_ %2d: %.3lf s\n", k, et - st);
     }
 
     free(coord);
