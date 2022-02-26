@@ -7,7 +7,7 @@
 
       double precision eps
       double complex eye,zk
-      integer i,j,k,idim
+      integer i,j,k,idim,ier
       double precision hkrand,pi,thet,phi
       
 
@@ -29,8 +29,8 @@ c
 
       zk = 2.2d0
 
-      ns = 2000
-      nt = 2000
+      ns = 10000
+      nt = 10000
       
       nd = 1
 
@@ -42,7 +42,7 @@ c
       allocate(pottarg(nd,nt))
 
 
-      eps = 0.5d-9
+      eps = 0.51d-3
 
       write(*,*) "=========================================="
 
@@ -55,7 +55,7 @@ c
 
 
 c
-cc      generate sources uniformly in the unit cube 
+cc      generate sources uniformly on the sphere 
 c
 c
       do i=1,ns
@@ -86,7 +86,7 @@ c
 
 
        call hfmm3d_st_cd_p_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,pot,nt,targ,pottarg)
+     1      dipvec,pot,nt,targ,pottarg,ier)
 
        call prin2("potential at sources=*",pot,12)
        call prin2("potential at targets=*",pottarg,12)

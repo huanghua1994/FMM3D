@@ -187,7 +187,7 @@ c       fld: complex *16 (3,nsource): field (-gradient) at source locations
 c       pottarg: complex *16 (ntarget): potential at target locations 
 c       fldtarg: complex *16 (3,ntarget): field (-gradient) at target locations 
 c
-      integer ier,iprec,nsource
+      integer ier,iprec,nsource,iper
       integer ifcharge,ifdipole
       double complex zk
       double precision source(3,nsource)
@@ -290,10 +290,11 @@ C$OMP END PARALLEL DO
       endif
 
       nd = 1
+      ier = 0
 
       call hfmm3d(nd,eps,zk,nsource,source,ifcharge,charge,
-     1  ifdipole,dipvec_in,ifpgh,pottmp,gradtmp,hess,ntarg,
-     2  targ,ifpghtarg,pottargtmp,gradtargtmp,hesstarg)
+     1  ifdipole,dipvec_in,iper,ifpgh,pottmp,gradtmp,hess,ntarg,
+     2  targ,ifpghtarg,pottargtmp,gradtargtmp,hesstarg,ier)
 
       if(ifpot.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)      
@@ -382,10 +383,10 @@ c
       double complex zk
       integer ns,ifcharge,ifdipole,ifpot,iffld,nt
       integer ifpottarg,iffldtarg
-      double precision source(3,1), targ(3,1)
-      double complex charge(1),dipstr(1)
-      double precision dipvec(3,1)
-      double complex pot(1),fld(3,1),pottarg(1),fldtarg(3,1)
+      double precision source(3,*), targ(3,*)
+      double complex charge(*),dipstr(*)
+      double precision dipvec(3,*)
+      double complex pot(*),fld(3,*),pottarg(*),fldtarg(3,*)
 
       double complex, allocatable :: pottmp(:),gradtmp(:,:)
       double complex, allocatable :: pottargtmp(:),gradtargtmp(:,:)
@@ -514,7 +515,8 @@ c
         write(*,*) "Exiting"
         return
       endif
-      thresh = abs(zk)*bsize*1.0d-16
+      thresh = bsize*2.0d0**(-51)
+
 
 
 

@@ -2,7 +2,7 @@ c
 cc      plane wave routines for Helmholtz 3D FMM
 c 
 c***********************************************************************
-      subroutine hrlscini(rlsc,nlambs,rlams,zk,nterms)
+      subroutine hrlscini(rlsc,nlambs,rlams,rsc,zk,nterms)
 c***********************************************************************
 c
 c       this subroutine computes p_{n,m}(i\sqrt(\lambda^2 - k^2)/k) (-i)^n
@@ -14,6 +14,7 @@ c       nlambs -     number of discretization nodes in lambda quadrature
 c       rlams -      location of discretization nodes in lambda
 c                    quadrature. Note here rlams stores sqrt(\lambda^2 -
 c                    k^2)
+c       rsc -        scaling parameter for ynm
 c       zk -         Helmholtz parameter(k)
 c       nterms -     max n for which p_{n,m}'s need to be computed
 c
@@ -25,22 +26,32 @@ c
       implicit real *8 (a-h,o-z)
       complex *16 rlsc(0:nterms,0:nterms,nlambs),rlams(nlambs)
       complex *16 zmult,ipow(0:nterms),ima,zk
+      real *8 rsc,rsctmp
 
       done = 1
-      ima = cmplx(0,done)
-      zmult = cmplx(0,-done)
+      ima = dcmplx(0,done)
+      zmult = dcmplx(0,-done)
       ipow(0) = done
 
       do 900 i=1,nterms
 
       ipow(i) = ipow(i-1)*zmult
 
-900   continue      
+900   continue    
+
+      do i=1,nlambs
+        do j=0,nterms
+          do l=0,nterms
+            rlsc(l,j,i) = 0
+          enddo
+        enddo
+      enddo
 c
       do 2000 nl = 1,nlambs
 
       zmult = ima*rlams(nl)/zk
-      call zylgndr(nterms,zmult,rlsc(0,0,nl))
+      call zylgndrsc(nterms,zmult,rsc,rlsc(0,0,nl))
+cc      call zylgndr(nterms,zmult,rlsc(0,0,nl))
 
       do 1900 iin=1,nterms
       do 1800 im=0,nterms
@@ -574,9 +585,10 @@ c        Add contributions to local expansion
          ntot = ntot + 2*numtets(nl)+1
       enddo
 
+      ztmp = zk2
       do nm=0,nterms
          do mth = -nm,nm
-            ztmp = rscale(nm)*zk2
+              
             do idim=1,nd
               local(idim,nm,mth) = local(idim,nm,mth)*ztmp
             enddo
@@ -594,7 +606,7 @@ c***********************************************************************
       complex *16 mexpf(nd,*)
       complex *16 mexpphys(nd,*),ima
       complex *16 fexp2(*)
-      real *8     alphas(0:2000)
+      real *8, allocatable :: alphas(:)
       integer  nlambs,numfour(nlambs),numphys(nlambs)
       data ima/(0.0d0,1.0d0)/
 c***********************************************************************
@@ -633,6 +645,8 @@ c               etc.
 c
 c------------------------------------------------------------
       done=1.0d0
+
+      allocate(alphas(0:3000))
 c
 c
       pi=datan(done)*4
@@ -696,7 +710,7 @@ c***********************************************************************
       complex *16 mexpf(nd,*)
       complex *16 mexpphys(nd,*),ima,ctmp
       complex *16 fexp(*)
-      real *8  alphas(0:1000)
+      real *8, allocatable :: alphas(:) 
       integer  nlambs,numfour(nlambs),numphys(nlambs)
       integer nd,idim
       data ima/(0.0d0,1.0d0)/
@@ -740,6 +754,8 @@ c         etc.
 c
 c------------------------------------------------------------
       done=1.0d0
+
+      allocate(alphas(0:3000))
 c
 c
       pi=datan(done)*4
@@ -772,11 +788,13 @@ c
 c----------------------------------------------------------      
 
       subroutine hprocessudexp(nd,zk2,ibox,ilev,nboxes,centers,ichild,
-     1           rscale,nterms,iaddr,rmlexp,rlams,whts,nlams,nfourier,
+     1           rscale,bs,nterms,iaddr,rmlexp,rlams,whts,nlams,
+     2           nfourier,
      2           nphysical,nthmax,nexptot,nexptotp,mexp,nuall,uall,
      3           nu1234,u1234,ndall,dall,nd5678,d5678,mexpup,mexpdown,
      4           mexpupphys,mexpdownphys,mexpuall,mexpu5678,mexpdall,
-     5           mexpd1234,xs,ys,zs,fexpback,rlsc)
+     5           mexpd1234,xs,ys,zs,fexpback,rlsc,
+     6           pgboxwexp,cntlist4,list4,nlist4s,ilist4,mnlist4)
 c--------------------------------------------------------------------
 c      process up down expansions for box ibox
 c-------------------------------------------------------------------
@@ -789,7 +807,7 @@ c-------------------------------------------------------------------
        integer nexptot,nexptotp,nmax
        integer nuall,ndall,nu1234,nd5678
        integer uall(*),dall(*),u1234(*),d5678(*)
-       real *8 rscale
+       real *8 rscale,bs
        complex *16 zk2
        complex *16 rlams(*),whts(*)
        complex *16 tloc(nd,0:nterms,-nterms:nterms)
@@ -802,9 +820,12 @@ c-------------------------------------------------------------------
        complex *16 xs(-5:5,nexptotp),ys(-5:5,nexptotp),zs(5,nexptotp)
        complex *16 rlsc(0:nterms,0:nterms,nlams)
        complex *16 fexpback(*)
+       integer cntlist4,list4(*),nlist4s(*),ilist4(*),mnlist4
+       integer nlist4
+       double complex pgboxwexp(nd,nexptotp,cntlist4,6)
 
 c      temp variables
-       integer jbox,ctr,ii,jj,i,ix,iy,iz,j
+       integer jbox,ctr,ii,jj,i,ix,iy,iz,j,kbox
        complex *16 ztmp,ztmp2,zmul
 
      
@@ -822,15 +843,15 @@ c      temp variables
        enddo
       
    
-       ctmp(1) = centers(1,ibox) - rscale/2.0d0
-       ctmp(2) = centers(2,ibox) - rscale/2.0d0
-       ctmp(3) = centers(3,ibox) - rscale/2.0d0
+       ctmp(1) = centers(1,ibox) - bs/2.0d0
+       ctmp(2) = centers(2,ibox) - bs/2.0d0
+       ctmp(3) = centers(3,ibox) - bs/2.0d0
        
        do i=1,nuall
           jbox = uall(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(iz,j)*xs(ix,j)*ys(iy,j)
@@ -843,9 +864,9 @@ c      temp variables
 
        do i=1,nu1234
           jbox = u1234(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
 
           do j=1,nexptotp
              zmul = zs(iz,j)*xs(ix,j)*ys(iy,j)
@@ -859,9 +880,9 @@ c      temp variables
        do i=1,ndall
           jbox = dall(i)
 
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
 
          
           do j=1,nexptotp
@@ -875,9 +896,9 @@ c      temp variables
 
        do i=1,nd5678
           jbox = d5678(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-iz,j)*xs(-ix,j)*ys(-iy,j)
@@ -903,6 +924,14 @@ c      add contributions due to child 1
             mexpupphys(idim,i)  = mexpuall(idim,i)
             mexpdownphys(idim,i) = mexpdall(idim,i) + mexpd1234(idim,i)
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -931,6 +960,14 @@ c      add contributions due to child 2
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -956,6 +993,14 @@ c      add contributions due to child 3
             mexpdownphys(idim,i) = (mexpdall(idim,i) + 
      1           mexpd1234(idim,i))*ys(-1,i)
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -986,6 +1031,14 @@ c      add contributions due to child 4
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1012,6 +1065,14 @@ c      add contributions due to child 5
      1         mexpu5678(idim,i))*zs(1,i)
             mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1041,6 +1102,14 @@ c      add contributions due to child 6
      1           mexpu5678(idim,i))*ztmp
             mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp2
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1074,6 +1143,14 @@ c      add contributions due to child 7
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1102,6 +1179,14 @@ c      add contributions due to child 8
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,1,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1121,14 +1206,16 @@ c      add contributions due to child 8
 c--------------------------------------------------------------------      
 
       subroutine hprocessnsexp(nd,zk2,ibox,ilev,nboxes,centers,ichild,
-     1           rscale,nterms,iaddr,rmlexp,rlams,whts,nlams,nfourier,
+     1           rscale,bs,nterms,iaddr,rmlexp,rlams,whts,nlams,
+     2           nfourier,
      2           nphysical,nthmax,nexptot,nexptotp,mexp,nnall,nall,
      3           nn1256,n1256,nn12,n12,nn56,n56,
      4           nsall,sall,ns3478,s3478,ns34,s34,ns78,s78,mexpup,
      5           mexpdown,mexpupphys,mexpdownphys,
      6           mexpnall,mexpn3478,mexpn34,mexpn78,mexpsall,
      7           mexps1256,mexps12,mexps56,rdplus,
-     8           xs,ys,zs,fexpback,rlsc)
+     8           xs,ys,zs,fexpback,rlsc,
+     9           pgboxwexp,cntlist4,list4,nlist4s,ilist4,mnlist4)
 c--------------------------------------------------------------------
 c      process north south expansions for box ibox
 c-------------------------------------------------------------------
@@ -1142,7 +1229,7 @@ c-------------------------------------------------------------------
        integer nnall,nsall,nn1256,ns3478,nn12,nn56,ns34,ns78
        integer nall(*),sall(*),n1256(*),s3478(*)
        integer n12(*),n56(*),s34(*),s78(*)
-       real *8 rscale
+       real *8 rscale,bs
        complex *16 zk2
        complex *16 rlams(*),whts(*)
        complex *16 tloc(nd,0:nterms,-nterms:nterms)
@@ -1159,9 +1246,12 @@ c-------------------------------------------------------------------
        complex *16 xs(-5:5,nexptotp),ys(-5:5,nexptotp),zs(5,nexptotp)
        complex *16 rlsc(0:nterms,0:nterms,nlams)
        complex *16 fexpback(*)
+       integer cntlist4,list4(*),nlist4s(*),ilist4(*),mnlist4
+       integer nlist4
+       double complex pgboxwexp(nd,nexptotp,cntlist4,6)
 
 c      temp variables
-       integer jbox,ctr,ii,jj,i,ix,iy,iz,j
+       integer jbox,ctr,ii,jj,i,ix,iy,iz,j,kbox
        complex *16 ztmp,zmul,ztmp2
 
      
@@ -1183,16 +1273,16 @@ c      temp variables
        enddo
       
    
-       ctmp(1) = centers(1,ibox) - rscale/2.0d0
-       ctmp(2) = centers(2,ibox) - rscale/2.0d0
-       ctmp(3) = centers(3,ibox) - rscale/2.0d0
+       ctmp(1) = centers(1,ibox) - bs/2.0d0
+       ctmp(2) = centers(2,ibox) - bs/2.0d0
+       ctmp(3) = centers(3,ibox) - bs/2.0d0
        
        do i=1,nnall
           jbox = nall(i)
 
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(iy,j)*xs(iz,j)*ys(ix,j)
@@ -1206,9 +1296,9 @@ c      temp variables
 
        do i=1,nn1256
           jbox = n1256(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(iy,j)*xs(iz,j)*ys(ix,j)
@@ -1221,9 +1311,9 @@ c      temp variables
 
        do i=1,nn12
           jbox = n12(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(iy,j)*xs(iz,j)*ys(ix,j)
@@ -1237,9 +1327,9 @@ c      temp variables
 
        do i=1,nn56
           jbox = n56(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(iy,j)*xs(iz,j)*ys(ix,j)
@@ -1254,9 +1344,9 @@ c      temp variables
        do i=1,nsall
           jbox = sall(i)
 
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
 
          
           do j=1,nexptotp
@@ -1270,9 +1360,9 @@ c      temp variables
 
        do i=1,ns3478
           jbox = s3478(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-iy,j)*xs(-iz,j)*ys(-ix,j)
@@ -1285,9 +1375,9 @@ c      temp variables
 
        do i=1,ns34
           jbox = s34(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-iy,j)*xs(-iz,j)*ys(-ix,j)
@@ -1300,9 +1390,9 @@ c      temp variables
 
        do i=1,ns78
           jbox = s78(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-iy,j)*xs(-iz,j)*ys(-ix,j)
@@ -1329,6 +1419,14 @@ c      add contributions due to child 1
             mexpdownphys(idim,i) = mexpsall(idim,i) + 
      1         mexps1256(idim,i) + mexps12(idim,i)
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1359,6 +1457,14 @@ c      add contributions due to child 2
          enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1387,6 +1493,14 @@ c      add contributions due to child 3
      1         mexpn34(idim,i)+mexpn3478(idim,i))*zs(1,i)
             mexpdownphys(idim,i) = mexpsall(idim,i)*ztmp      
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1420,6 +1534,14 @@ c      add contributions due to child 4
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1446,6 +1568,14 @@ c      add contributions due to child 5
             mexpdownphys(idim,i) = (mexpsall(idim,i) + 
      1          mexps1256(idim,i) + mexps56(idim,i))*xs(-1,i)      
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1475,6 +1605,14 @@ c      add contributions due to child 6
            mexpdownphys(idim,i) = (mexpsall(idim,i) + 
      1        mexps1256(idim,i) + mexps56(idim,i))*ztmp2
          enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1507,6 +1645,14 @@ c      add contributions due to child 7
          enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1536,6 +1682,14 @@ c      add contributions due to child 8
          enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,2,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1557,7 +1711,8 @@ c      add contributions due to child 8
 c--------------------------------------------------------------------      
 
       subroutine hprocessewexp(nd,zk2,ibox,ilev,nboxes,centers,ichild,
-     1           rscale,nterms,iaddr,rmlexp,rlams,whts,nlams,nfourier,
+     1           rscale,bs,nterms,iaddr,rmlexp,rlams,whts,nlams,
+     2           nfourier,
      2           nphysical,nthmax,nexptot,nexptotp,mexp,neall,eall,
      3           ne1357,e1357,ne13,e13,ne57,e57,ne1,e1,ne3,e3,ne5,e5,
      4           ne7,e7,nwall,wall,nw2468,w2468,nw24,w24,nw68,w68,
@@ -1566,7 +1721,8 @@ c--------------------------------------------------------------------
      7           mexpeall,mexpe2468,mexpe24,mexpe68,mexpe2,mexpe4,
      8           mexpe6,mexpe8,mexpwall,mexpw1357,mexpw13,mexpw57,
      9           mexpw1,mexpw3,mexpw5,mexpw7,rdminus,
-     9           xs,ys,zs,fexpback,rlsc)
+     9           xs,ys,zs,fexpback,rlsc,
+     9           pgboxwexp,cntlist4,list4,nlist4s,ilist4,mnlist4)
 c--------------------------------------------------------------------
 c      process east west expansions for box ibox
 c-------------------------------------------------------------------
@@ -1582,7 +1738,7 @@ c-------------------------------------------------------------------
        integer eall(*),wall(*),e1357(*),w2468(*)
        integer e13(*),e57(*),w24(*),w68(*)
        integer e1(*),e3(*),e5(*),e7(*),w2(*),w4(*),w6(*),w8(*)
-       real *8 rscale
+       real *8 rscale,bs
        complex *16 zk2
        complex *16 rlams(*),whts(*)
        complex *16 tloc(nd,0:nterms,-nterms:nterms)
@@ -1603,9 +1759,12 @@ c-------------------------------------------------------------------
        complex *16 xs(-5:5,nexptotp),ys(-5:5,nexptotp),zs(5,nexptotp)
        complex *16 rlsc(0:nterms,0:nterms,nlams)
        complex *16 fexpback(*)
+       integer cntlist4,list4(*),nlist4s(*),ilist4(*),mnlist4
+       integer nlist4
+       double complex pgboxwexp(nd,nexptotp,cntlist4,6)
 
 c      temp variables
-       integer jbox,ctr,ii,jj,i,ix,iy,iz,j,l,idim
+       integer jbox,ctr,ii,jj,i,ix,iy,iz,j,l,idim,kbox
        complex *16 ztmp,zmul,ztmp2
 
      
@@ -1636,15 +1795,15 @@ c      temp variables
        enddo
       
    
-       ctmp(1) = centers(1,ibox) - rscale/2.0d0
-       ctmp(2) = centers(2,ibox) - rscale/2.0d0
-       ctmp(3) = centers(3,ibox) - rscale/2.0d0
+       ctmp(1) = centers(1,ibox) - bs/2.0d0
+       ctmp(2) = centers(2,ibox) - bs/2.0d0
+       ctmp(3) = centers(3,ibox) - bs/2.0d0
        
        do i=1,neall
           jbox = eall(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1657,9 +1816,9 @@ c      temp variables
 
        do i=1,ne1357
           jbox = e1357(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1672,9 +1831,9 @@ c      temp variables
 
        do i=1,ne13
           jbox = e13(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1688,9 +1847,9 @@ c      temp variables
 
        do i=1,ne57
           jbox = e57(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1703,9 +1862,9 @@ c      temp variables
 
        do i=1,ne1
           jbox = e1(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1719,9 +1878,9 @@ c      temp variables
 
        do i=1,ne3
           jbox = e3(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1734,9 +1893,9 @@ c      temp variables
 
        do i=1,ne5
           jbox = e5(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1750,9 +1909,9 @@ c      temp variables
 
        do i=1,ne7
           jbox = e7(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
@@ -1766,9 +1925,9 @@ c      temp variables
        do i=1,nwall
           jbox = wall(i)
 
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
 
          
           do j=1,nexptotp
@@ -1782,9 +1941,9 @@ c      temp variables
 
        do i=1,nw2468
           jbox = w2468(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1797,9 +1956,9 @@ c      temp variables
 
        do i=1,nw24
           jbox = w24(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1815,9 +1974,9 @@ c      temp variables
 
        do i=1,nw68
           jbox = w68(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1830,9 +1989,9 @@ c      temp variables
 
        do i=1,nw2
           jbox = w2(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1846,9 +2005,9 @@ c      temp variables
 
        do i=1,nw4
           jbox = w4(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1861,9 +2020,9 @@ c      temp variables
 
        do i=1,nw6
           jbox = w6(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1876,9 +2035,9 @@ c      temp variables
 
        do i=1,nw8
           jbox = w8(i)
-          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
-          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
-          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+          ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+          iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+          iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
          
           do j=1,nexptotp
              zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
@@ -1905,6 +2064,14 @@ c      add contributions due to child 1
              mexpdownphys(idim,i) = mexpwall(idim,i)+mexpw1357(idim,i)+
      1                mexpw13(idim,i)+mexpw1(idim,i)
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1938,6 +2105,14 @@ c      add contributions due to child 2
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -1966,6 +2141,14 @@ c      add contributions due to child 3
             mexpdownphys(idim,i) = (mexpwall(idim,i)+mexpw1357(idim,i)+
      1                mexpw13(idim,i)+mexpw3(idim,i))*ys(-1,i)
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -1998,6 +2181,14 @@ c      add contributions due to child 4
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -2023,6 +2214,14 @@ c      add contributions due to child 5
             mexpdownphys(idim,i) = (mexpwall(idim,i)+mexpw1357(idim,i)+
      1            mexpw57(idim,i)+mexpw5(idim,i))*xs(1,i)
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -2052,6 +2251,14 @@ c      add contributions due to child 6
      1              mexpe68(idim,i)+mexpe6(idim,i))*ztmp      
             mexpdownphys(idim,i) = mexpwall(idim,i)*ztmp2
           enddo
+       enddo
+
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
        enddo
 
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
@@ -2085,6 +2292,14 @@ c      add contributions due to child 7
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -2115,6 +2330,14 @@ c      add contributions due to child 8
           enddo
        enddo
 
+       nlist4=nlist4s(jbox)
+       do i=1,nlist4
+         kbox=ilist4((jbox-1)*mnlist4+i)
+         call h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1        list4(kbox),nexptotp,xs,ys,zs,
+     2        centers(1,kbox),centers(1,jbox),bs,3,cntlist4)
+       enddo
+
        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
      1               mexpupphys,fexpback)
  
@@ -2130,6 +2353,2391 @@ c      add contributions due to child 8
         call mpadd(nd,tloc2,rmlexp(iaddr(2,jbox)),nterms)
 
        endif
+
+      return
+      end
+c--------------------------------------------------------------------      
+c
+c
+c--------------------------------------------------------------------
+      subroutine hprocesslist3udexp(nd,ibox,nboxes,centers,
+     1           bs,nterms,nexptotp,mexp,nuall,uall,
+     3           ndall,dall,mexpuall,mexpdall,
+     5           xs,ys,zs)
+c--------------------------------------------------------------------
+c      process up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer idim,nd
+      integer ibox,nboxes,nterms,nlams,nthmax
+      integer nexptot,nexptotp
+      integer nuall,ndall
+      integer uall(*),dall(*)
+      double precision bs
+      double complex mexp(nd,nexptotp,nboxes,6)
+      double precision centers(3,nboxes)
+      double complex mexpuall(nd,nexptotp),mexpdall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+
+c      temp variables
+      integer jbox,i,ix,iy,iz,j
+      double precision rtmp
+      double complex ztmp,zmul,ztmp2
+     
+      double precision ctmp(3)
+
+
+      do i=1,nexptotp
+        do idim=1,nd
+          mexpuall(idim,i) = 0
+          mexpdall(idim,i) = 0
+        enddo
+      enddo
+      
+   
+      ctmp(1) = centers(1,ibox) - bs/2.0d0
+      ctmp(2) = centers(2,ibox) - bs/2.0d0
+      ctmp(3) = centers(3,ibox) - bs/2.0d0
+  
+      
+      do i=1,nuall
+        jbox = uall(i)
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
+         
+        do j=1,nexptotp
+          zmul = zs(iz,j)*xs(ix,j)*ys(iy,j)
+          do idim=1,nd
+            mexpdall(idim,j) = mexpdall(idim,j) + 
+     1                         mexp(idim,j,jbox,2)*zmul
+          enddo
+        enddo
+      enddo
+
+      do i=1,ndall
+        jbox = dall(i)
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
+
+        do j=1,nexptotp
+          zmul = zs(-iz,j)*xs(-ix,j)*ys(-iy,j)
+          do idim=1,nd
+            mexpuall(idim,j) = mexpuall(idim,j) + 
+     1                         mexp(idim,j,jbox,1)*zmul
+          enddo
+        enddo
+      enddo
+
+
+      return
+      end
+c--------------------------------------------------------------------      
+
+      subroutine hprocesslist3nsexp(nd,ibox,nboxes,centers,
+     1           bs,nterms,nexptotp,mexp,nnall,nall,
+     3           nsall,sall,mexpnall,mexpsall,
+     5           xs,ys,zs)
+c--------------------------------------------------------------------
+c      create up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer nd
+      integer ibox,nboxes,nterms,nlams,nthmax
+      integer nexptotp
+      integer nnall,nsall
+      integer nall(*),sall(*)
+      double precision bs
+      double complex mexp(nd,nexptotp,nboxes,6)
+      double precision centers(3,*)
+      double complex mexpnall(nd,nexptotp),mexpsall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+
+c      temp variables
+      integer jbox,i,ix,iy,iz,j,idim
+      double complex ztmp,zmul,ztmp2
+      double precision rtmp
+    
+      double precision ctmp(3)
+
+
+      do i=1,nexptotp
+        do idim=1,nd
+          mexpnall(idim,i) = 0
+          mexpsall(idim,i) = 0
+        enddo
+      enddo
+      
+   
+      ctmp(1) = centers(1,ibox) - bs/2.0d0
+      ctmp(2) = centers(2,ibox) - bs/2.0d0
+      ctmp(3) = centers(3,ibox) - bs/2.0d0
+       
+      do i=1,nnall
+        jbox = nall(i)
+
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
+         
+        do j=1,nexptotp
+           zmul = zs(iy,j)*xs(iz,j)*ys(ix,j)
+           do idim=1,nd
+             mexpsall(idim,j) = mexpsall(idim,j) + 
+     1                          mexp(idim,j,jbox,4)*zmul
+           enddo
+        enddo
+
+      enddo
+
+      do i=1,nsall
+        jbox = sall(i)
+
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
+         
+        do j=1,nexptotp
+          zmul = zs(-iy,j)*xs(-iz,j)*ys(-ix,j)
+          do idim=1,nd
+            mexpnall(idim,j) = mexpnall(idim,j) + 
+     1                         mexp(idim,j,jbox,3)*zmul
+          enddo
+        enddo
+      enddo
+
+      return
+      end
+c--------------------------------------------------------------------      
+
+      subroutine hprocesslist3ewexp(nd,ibox,nboxes,centers,
+     1           bs,nterms,nexptotp,mexp,neall,eall,nwall,wall,
+     4           mexpeall,mexpwall,xs,ys,zs)
+c--------------------------------------------------------------------
+c      create up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer nd
+      integer ibox,nboxes,nterms,nlams,nthmax
+      integer nexptotp
+      integer neall,nwall
+      integer eall(*),wall(*)
+      double precision bs
+      double complex mexp(nd,nexptotp,nboxes,6)
+      double precision centers(3,*)
+      double complex mexpeall(nd,nexptotp),mexpwall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+
+c      temp variables
+      integer jbox,i,ix,iy,iz,j,l,idim
+      double complex ztmp,zmul,ztmp2
+      double complex rtmp
+     
+      double precision ctmp(3)
+
+
+      do i=1,nexptotp
+        do idim=1,nd
+          mexpeall(idim,i) = 0
+          mexpwall(idim,i) = 0
+        enddo
+      enddo
+      
+   
+      ctmp(1) = centers(1,ibox) - bs/2.0d0
+      ctmp(2) = centers(2,ibox) - bs/2.0d0
+      ctmp(3) = centers(3,ibox) - bs/2.0d0
+       
+      do i=1,neall
+        jbox = eall(i)
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
+         
+        do j=1,nexptotp
+          zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
+          do idim=1,nd
+            mexpwall(idim,j) = mexpwall(idim,j) + 
+     1                         mexp(idim,j,jbox,6)*zmul
+          enddo
+        enddo
+      enddo
+
+      do i=1,nwall
+        jbox = wall(i)
+
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/bs
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/bs
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/bs
+
+         
+        do j=1,nexptotp
+          zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
+          do idim=1,nd
+            mexpeall(idim,j) = mexpeall(idim,j) + 
+     1                         mexp(idim,j,jbox,5)*zmul
+          enddo
+        enddo
+      enddo
+
+
+      return
+      end
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------     
+
+      subroutine hpw_ud_eval_p(nd,zk2,center,boxsize,ntarg,targ,nlam,
+     1   rlams,
+     1   whts,nphys,nexptotp,nphmax,mexpupphys,mexpdownphys,pot)
+      implicit none
+      integer nd
+      real *8 center(3),boxsize,targ(3,ntarg)
+      complex *16 rlams(nlam),pot(nd,ntarg)
+      complex *16 whts(nlam),zk2
+      integer ntarg,nlam,nphys(nlam),nexptotp,nphmax
+      complex *16 mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      complex *16 ima
+      complex *16, allocatable :: cc(:),cc2(:)
+      integer itarg,i,j,k,l,il,ii,iphys,istart,idim
+      real *8 pi2inv,rexp1,alpha,pi2,x,y,z
+      real *8 h,hh,rr
+      complex *16 rz,zsc,rk
+      complex *16, allocatable :: zexp(:),zexpinv(:)
+      data pi2inv/0.15915494309189535d0/
+      data pi2/6.283185307179586d0/
+      data ima/(0.0d0,1.0d0)/
+
+      zsc = -ima/zk2
+
+      allocate(zexp(nlam),zexpinv(nlam),cc(nphmax),cc2(nphmax))
+
+
+
+      do itarg=1,ntarg
+        x = (targ(1,itarg) - center(1))/boxsize
+        y = (targ(2,itarg) - center(2))/boxsize
+        z = (targ(3,itarg) - center(3))/boxsize
+
+
+        do i=1,nlam
+          zexp(i) = exp(-z*rlams(i))*whts(i)
+          zexpinv(i) = exp(z*rlams(i))*whts(i)
+        enddo
+
+
+        istart = 0
+        do il=1,nlam
+          h = pi2/nphys(il)
+          hh = 1.0d0/nphys(il)
+
+          rk = sqrt(rlams(il)**2 + zk2**2)
+
+          do iphys = 1,nphys(il)
+            alpha = (iphys-1)*h
+            cc(iphys) = exp(ima*rk*(x*cos(alpha) + y*sin(alpha)))
+            cc2(iphys) = exp(-ima*rk*(x*cos(alpha) + y*sin(alpha)))
+          enddo
+
+          do iphys = 1,nphys(il)
+            ii = istart + iphys
+            do idim=1,nd
+              rz = 
+     1            (mexpupphys(idim,ii)*zexp(il)*cc(iphys) + 
+     2             mexpdownphys(idim,ii)*zexpinv(il)*cc2(iphys))*hh
+              pot(idim,itarg) = pot(idim,itarg) + rz*zsc 
+            enddo
+          enddo
+          istart = istart + nphys(il)
+        enddo
+      enddo
+
+      return
+      end
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------     
+
+      subroutine hpw_ns_eval_p(nd,zk2,center,boxsize,ntarg,targ,nlam,
+     1   rlams,whts,nphys,nexptotp,nphmax,mexpupphys,mexpdownphys,pot)
+      implicit none
+      integer nd
+      real *8 center(3),boxsize,targ(3,ntarg)
+      complex *16 rlams(nlam),pot(nd,ntarg)
+      complex *16 whts(nlam),zk2
+      integer ntarg,nlam,nphys(nlam),nexptotp,nphmax
+      complex *16 mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      complex *16 ima
+      complex *16, allocatable :: cc(:),cc2(:)
+      integer itarg,i,j,k,l,il,ii,iphys,istart,idim
+      real *8 pi2inv,rexp1,alpha,pi2,x,y,z
+      real *8 h,hh,rr
+      complex *16 rz,zsc,rk
+      complex *16, allocatable :: zexp(:),zexpinv(:)
+      data pi2inv/0.15915494309189535d0/
+      data pi2/6.283185307179586d0/
+      data ima/(0.0d0,1.0d0)/
+
+      allocate(zexp(nlam),zexpinv(nlam),cc(nphmax),cc2(nphmax))
+
+      zsc = -ima/zk2
+
+
+      do itarg=1,ntarg
+        x = (targ(1,itarg) - center(1))/boxsize
+        y = (targ(2,itarg) - center(2))/boxsize
+        z = (targ(3,itarg) - center(3))/boxsize
+
+        do i=1,nlam
+          zexp(i) = exp(-y*rlams(i))*whts(i)
+          zexpinv(i) = exp(y*rlams(i))*whts(i)
+        enddo
+
+
+        istart = 0
+        do il=1,nlam
+          h = pi2/nphys(il)
+          hh = 1.0d0/nphys(il)
+
+          rk = sqrt(rlams(il)**2 + zk2**2)
+
+          do iphys = 1,nphys(il)
+            alpha = (iphys-1)*h
+            cc(iphys) = exp(ima*rk*(z*cos(alpha) + x*sin(alpha)))
+            cc2(iphys) = exp(-ima*rk*(z*cos(alpha) + x*sin(alpha)))
+          enddo
+
+
+          do iphys = 1,nphys(il)
+            ii = istart + iphys
+            do idim=1,nd
+              rz = 
+     1            (mexpupphys(idim,ii)*zexp(il)*cc(iphys) + 
+     2             mexpdownphys(idim,ii)*zexpinv(il)*cc2(iphys))*hh
+              pot(idim,itarg) = pot(idim,itarg) + rz*zsc 
+            enddo
+          enddo
+          istart = istart + nphys(il)
+
+        enddo
+      enddo
+
+      return
+      end
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------     
+
+      subroutine hpw_ew_eval_p(nd,zk2,center,boxsize,ntarg,targ,nlam,
+     1   rlams,whts,nphys,nexptotp,nphmax,mexpupphys,mexpdownphys,pot)
+      implicit none
+      integer nd
+      real *8 center(3),boxsize,targ(3,ntarg)
+      complex *16 rlams(nlam),pot(nd,ntarg)
+      complex *16 whts(nlam),zk2
+      integer ntarg,nlam,nphys(nlam),nexptotp,nphmax
+      complex *16 mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      complex *16 ima
+      complex *16, allocatable :: cc(:),cc2(:)
+      integer itarg,i,j,k,l,il,ii,iphys,istart,idim
+      real *8 pi2inv,rexp1,alpha,pi2,x,y,z
+      real *8 h,hh,rr
+      complex *16 rz,zsc,rk
+      complex *16, allocatable :: zexp(:),zexpinv(:)
+      data pi2inv/0.15915494309189535d0/
+      data pi2/6.283185307179586d0/
+      data ima/(0.0d0,1.0d0)/
+
+      allocate(zexp(nlam),zexpinv(nlam),cc(nphmax),cc2(nphmax))
+
+      zsc = -ima/zk2
+
+      do itarg=1,ntarg
+        x = (targ(1,itarg) - center(1))/boxsize
+        y = (targ(2,itarg) - center(2))/boxsize
+        z = (targ(3,itarg) - center(3))/boxsize
+
+
+        do i=1,nlam
+          zexp(i) = exp(-x*rlams(i))*whts(i)
+          zexpinv(i) = exp(x*rlams(i))*whts(i)
+        enddo
+
+
+
+        istart = 0
+        do il=1,nlam
+          h = pi2/nphys(il)
+          hh = 1.0d0/nphys(il)
+
+          rk = sqrt(rlams(il)**2 + zk2**2)
+
+          do iphys = 1,nphys(il)
+            alpha = (iphys-1)*h
+            cc(iphys) = exp(ima*rk*(-z*cos(alpha) + y*sin(alpha)))
+            cc2(iphys) = exp(ima*rk*(z*cos(alpha) - y*sin(alpha)))
+          enddo
+
+          do iphys = 1,nphys(il)
+            ii = istart + iphys
+            do idim=1,nd
+              rz = 
+     1            (mexpupphys(idim,ii)*zexp(il)*cc(iphys) + 
+     2             mexpdownphys(idim,ii)*zexpinv(il)*cc2(iphys))*hh
+              pot(idim,itarg) = pot(idim,itarg) + rz*zsc 
+            enddo
+          enddo
+          istart = istart + nphys(il)
+
+        enddo
+      enddo
+
+      return
+      end
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------     
+
+      subroutine hpw_ud_eval_g(nd,zk2,center,boxsize,ntarg,targ,nlam,
+     1   rlams,whts,nphys,nexptotp,nphmax,mexpupphys,mexpdownphys,pot,
+     2   grad)
+      implicit none
+      integer nd
+      real *8 center(3),boxsize,targ(3,ntarg)
+      complex *16 rlams(nlam),pot(nd,ntarg)
+      complex *16 grad(nd,3,ntarg),whts(nlam),zk2
+      integer ntarg,nlam,nphys(nlam),nexptotp,nphmax
+      complex *16 mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      complex *16 ima
+      complex *16, allocatable :: cc(:),crc(:),crs(:),cc2(:)
+      integer itarg,i,j,k,l,il,ii,iphys,istart,idim
+      real *8 pi2inv,rexp1,alpha,pi2,x,y,z
+      real *8 h,hh,rr,binv
+      complex *16 rz,rz1,rz2,zsc,rk
+      complex *16, allocatable :: zexp(:),zexpinv(:)
+      data pi2inv/0.15915494309189535d0/
+      data pi2/6.283185307179586d0/
+      data ima/(0.0d0,1.0d0)/
+
+      allocate(zexp(nlam),zexpinv(nlam),cc(nphmax),cc2(nphmax))
+      allocate(crc(nphmax),crs(nphmax))
+
+      binv = 1.0d0/boxsize
+      zsc = -ima/zk2
+
+
+      do itarg=1,ntarg
+        x = (targ(1,itarg) - center(1))/boxsize
+        y = (targ(2,itarg) - center(2))/boxsize
+        z = (targ(3,itarg) - center(3))/boxsize
+
+        do i=1,nlam
+          zexp(i) = exp(-z*rlams(i))*whts(i)
+          zexpinv(i) = exp(z*rlams(i))*whts(i)
+        enddo
+
+
+        istart = 0
+        do il=1,nlam
+          h = pi2/nphys(il)
+          hh = 1.0d0/nphys(il)
+
+          rk = sqrt(rlams(il)**2 + zk2**2)
+
+          do iphys = 1,nphys(il)
+            alpha = (iphys-1)*h
+            crc(iphys) = rk*cos(alpha)*ima
+            crs(iphys) = rk*sin(alpha)*ima
+            cc(iphys) = exp(crc(iphys)*x + crs(iphys)*y)
+            cc2(iphys) = exp(-(crc(iphys)*x + crs(iphys)*y))
+          enddo
+          do iphys = 1,nphys(il)
+            ii = istart + iphys
+            do idim=1,nd
+              rz1 = mexpupphys(idim,ii)*zexp(il)*cc(iphys)*hh*zsc
+              rz2 = mexpdownphys(idim,ii)*zexpinv(il)*cc2(iphys)*hh*zsc
+              rz = rz1 + rz2
+              pot(idim,itarg) = pot(idim,itarg) + rz
+              grad(idim,1,itarg) = grad(idim,1,itarg) + 
+     1            (rz1-rz2)*crc(iphys)*binv
+              grad(idim,2,itarg) = grad(idim,2,itarg) + 
+     1            (rz1-rz2)*crs(iphys)*binv
+              grad(idim,3,itarg) = grad(idim,3,itarg) - 
+     1            (rz1-rz2)*binv*rlams(il)
+            enddo
+          enddo
+          istart = istart + nphys(il)
+        enddo
+      enddo
+
+      return
+      end
+c
+c
+c
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------     
+
+      subroutine hpw_ns_eval_g(nd,zk2,center,boxsize,ntarg,targ,nlam,
+     1  rlams,whts,nphys,nexptotp,nphmax,mexpupphys,mexpdownphys,pot,
+     2  grad)
+      implicit none
+      integer nd
+      real *8 center(3),boxsize,targ(3,ntarg)
+      complex *16 rlams(nlam),pot(nd,ntarg)
+      complex *16 grad(nd,3,ntarg),whts(nlam),zk2
+      integer ntarg,nlam,nphys(nlam),nexptotp,nphmax
+      complex *16 mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      complex *16 ima
+      complex *16, allocatable :: cc(:),crc(:),crs(:),cc2(:)
+      integer itarg,i,j,k,l,il,ii,iphys,istart,idim
+      real *8 pi2inv,rexp1,alpha,pi2,x,y,z
+      real *8 h,hh,rr,binv
+      complex *16 rz,rz1,rz2,zsc,rk
+      complex *16, allocatable :: zexp(:),zexpinv(:)
+      data pi2inv/0.15915494309189535d0/
+      data pi2/6.283185307179586d0/
+      data ima/(0.0d0,1.0d0)/
+
+      allocate(zexp(nlam),zexpinv(nlam),cc(nphmax),cc2(nphmax))
+      allocate(crc(nphmax),crs(nphmax))
+
+      binv = 1.0d0/boxsize
+
+      zsc = -ima/zk2
+
+      do itarg=1,ntarg
+        x = (targ(1,itarg) - center(1))/boxsize
+        y = (targ(2,itarg) - center(2))/boxsize
+        z = (targ(3,itarg) - center(3))/boxsize
+
+        do i=1,nlam
+          zexp(i) = exp(-y*rlams(i))*whts(i)
+          zexpinv(i) = exp(y*rlams(i))*whts(i)
+        enddo
+
+
+        istart = 0
+        do il=1,nlam
+          h = pi2/nphys(il)
+          hh = 1.0d0/nphys(il)
+
+          rk = sqrt(rlams(il)**2 + zk2**2) 
+
+          do iphys = 1,nphys(il)
+            alpha = (iphys-1)*h
+            crc(iphys) = rk*cos(alpha)*ima
+            crs(iphys) = rk*sin(alpha)*ima
+            cc(iphys) = exp(crc(iphys)*z + crs(iphys)*x)
+            cc2(iphys) = exp(-(crc(iphys)*z + crs(iphys)*x))
+          enddo
+          do iphys = 1,nphys(il)
+            ii = istart + iphys
+            do idim=1,nd
+              rz1 = mexpupphys(idim,ii)*zexp(il)*cc(iphys)*hh*zsc
+              rz2 = mexpdownphys(idim,ii)*zexpinv(il)*cc2(iphys)*hh*zsc
+              rz = rz1 + rz2
+              pot(idim,itarg) = pot(idim,itarg) + rz
+              grad(idim,1,itarg) = grad(idim,1,itarg) + 
+     1            (rz1-rz2)*crs(iphys)*binv
+              grad(idim,2,itarg) = grad(idim,2,itarg) - 
+     1            (rz1-rz2)*binv*rlams(il)
+              grad(idim,3,itarg) = grad(idim,3,itarg) + 
+     1            (rz1-rz2)*crc(iphys)*binv
+
+            enddo
+          enddo
+          istart = istart + nphys(il)
+        enddo
+      enddo
+
+      return
+      end
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------     
+
+      subroutine hpw_ew_eval_g(nd,zk2,center,boxsize,ntarg,targ,nlam,
+     1  rlams,whts,nphys,nexptotp,nphmax,mexpupphys,mexpdownphys,pot,
+     2  grad)
+      implicit none
+      integer nd
+      real *8 center(3),boxsize,targ(3,ntarg)
+      complex *16 rlams(nlam),pot(nd,ntarg)
+      complex *16 grad(nd,3,ntarg),whts(nlam),zk2
+      integer ntarg,nlam,nphys(nlam),nexptotp,nphmax
+      complex *16 mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      complex *16 ima
+      complex *16, allocatable :: cc(:),crc(:),crs(:),cc2(:)
+      integer itarg,i,j,k,l,il,ii,iphys,istart,idim
+      real *8 pi2inv,rexp1,alpha,pi2,x,y,z
+      real *8 h,hh,rr,binv
+      complex *16 rz,rz1,rz2,rk,zsc
+      complex *16, allocatable :: zexp(:),zexpinv(:)
+      data pi2inv/0.15915494309189535d0/
+      data pi2/6.283185307179586d0/
+      data ima/(0.0d0,1.0d0)/
+
+      allocate(zexp(nlam),zexpinv(nlam),cc(nphmax),cc2(nphmax))
+      allocate(crc(nphmax),crs(nphmax))
+
+      binv = 1.0d0/boxsize
+      zsc = -ima/zk2
+
+
+      do itarg=1,ntarg
+        x = (targ(1,itarg) - center(1))/boxsize
+        y = (targ(2,itarg) - center(2))/boxsize
+        z = (targ(3,itarg) - center(3))/boxsize
+
+        do i=1,nlam
+          zexp(i) = exp(-x*rlams(i))*whts(i)
+          zexpinv(i) = exp(x*rlams(i))*whts(i)
+        enddo
+
+
+        istart = 0
+        do il=1,nlam
+          h = pi2/nphys(il)
+          hh = 1.0d0/nphys(il)
+          
+          rk = sqrt(rlams(il)**2 + zk2**2)
+
+          do iphys = 1,nphys(il)
+            alpha = (iphys-1)*h
+            crc(iphys) = rk*cos(alpha)*ima
+            crs(iphys) = rk*sin(alpha)*ima
+            cc(iphys) = exp(-crc(iphys)*z + crs(iphys)*y)
+            cc2(iphys) = exp(crc(iphys)*z - crs(iphys)*y)
+          enddo
+          do iphys = 1,nphys(il)
+            ii = istart + iphys
+            do idim=1,nd
+              rz1 = mexpupphys(idim,ii)*zexp(il)*cc(iphys)*hh*zsc
+              rz2 = mexpdownphys(idim,ii)*zexpinv(il)*cc2(iphys)*hh*zsc
+              rz = rz1 + rz2
+              pot(idim,itarg) = pot(idim,itarg) + rz
+              grad(idim,1,itarg) = grad(idim,1,itarg) - 
+     1            (rz1-rz2)*binv*rlams(il)
+              grad(idim,2,itarg) = grad(idim,2,itarg) + 
+     1            (rz1-rz2)*crs(iphys)*binv
+              grad(idim,3,itarg) = grad(idim,3,itarg) - 
+     1            (rz1-rz2)*crc(iphys)*binv
+
+            enddo
+          enddo
+          istart = istart + nphys(il)
+        enddo
+      enddo
+
+      return
+      end
+c
+c
+c
+c
+c
+c----------------------------------------------------------------------
+      subroutine h3dlist4pw(ilev,zk,nd,nexptotp,nexptot,nterms,nn,
+     1           nlams,nlege,nlevels,ifcharge,ifdipole,list4,isrcse,
+     2           laddr,nfourier,nphysical,
+     3           rdminus,rdplus,rlsc,
+     4           rscales,boxsize,xshift,yshift,zshift,
+     5           sourcesort,chargesort,dipvecsort,centers,fexp,
+     6           mexpf1,mexpf2,tmp,tmp2,wlege,rlams,rsc,pgboxwexp,
+     7           cntlist4)
+      implicit none
+cccccc input/output variables
+      integer ilev
+      integer nd
+      integer nexptotp,nexptot
+      integer nterms,nn,nlams,nlege,nlevels,cntlist4
+      integer ifcharge,ifdipole
+      integer list4(*),laddr(2,0:nlevels)
+      integer isrcse(2,*)
+      integer nfourier(*)
+      integer nphysical(*)
+      double precision rdminus(0:nn,0:nn,-nn:nn)
+      double precision rdplus(0:nn,0:nn,-nn:nn)
+      double precision rscales
+      double precision boxsize
+      double precision sourcesort(3,*)
+      double precision centers(3,*)
+      double precision wlege(40000)
+      double precision rsc(*)
+      double complex rlsc(0:nterms,0:nterms,nlams)
+      double complex xshift(-5:5,nexptotp)
+      double complex yshift(-5:5,nexptotp)
+      double complex zshift(5,nexptotp)
+      double complex zk
+      double complex chargesort(nd,*)
+      double complex dipvecsort(nd,3,*)
+      double complex fexp(*)
+      double complex mexpf1(nd,nexptot,*)
+      double complex mexpf2(nd,nexptot,*)
+      double complex tmp(nd,0:nterms,-nterms:nterms,*)
+      double complex tmp2(nd,0:nterms,-nterms:nterms,*)
+      double complex rlams(*)
+      double complex pgboxwexp(nd,nexptotp,cntlist4,6)
+cccccc scoped function variables
+      integer ibox,jbox,i,idim,nlist3
+      integer istart,iend,npts,jstart,jend,npts0
+      integer, allocatable :: gboxfl(:,:)
+      integer, allocatable :: gboxind(:)
+      double precision, allocatable :: gboxsubcenters(:,:)
+      double precision time1,time2,omp_get_wtime
+      double precision, allocatable :: gboxsort(:,:)
+      double complex, allocatable :: gboxmexp(:,:)
+      double complex, allocatable ::  gboxwexp(:,:,:,:)
+      double complex, allocatable :: gboxcgsort(:,:)
+      double complex, allocatable :: gboxdpsort(:,:,:)
+      integer nthd,ithd
+      integer omp_get_max_threads,omp_get_thread_num
+      nthd = 1
+C$    nthd=omp_get_max_threads()
+      
+      call cpu_time(time1)
+C$    time1=omp_get_wtime()
+      pgboxwexp=0d0
+C$OMP PARALLEL DO DEFAULT(SHARED)
+C$OMP$PRIVATE(ibox,istart,iend,jbox,jstart,jend,npts,npts0,i)
+C$OMP$PRIVATE(gboxind,gboxsort,gboxfl,gboxsubcenters)
+C$OMP$PRIVATE(gboxcgsort,gboxdpsort,gboxwexp,gboxmexp)
+C$OMP$PRIVATE(ithd)
+      do ibox=laddr(1,ilev),laddr(2,ilev)
+        ithd = 0
+C$      ithd=omp_get_thread_num()
+        ithd = ithd + 1
+        if(list4(ibox).gt.0) then
+          istart=isrcse(1,ibox)
+          iend=isrcse(2,ibox)
+          npts = iend-istart+1
+          if(npts.gt.0) then
+            allocate(gboxfl(2,8))
+            allocate(gboxsubcenters(3,8))
+            allocate(gboxind(npts))
+            allocate(gboxsort(3,npts))
+            allocate(gboxmexp(nd*(nterms+1)*(2*nterms+1),8))
+            allocate(gboxwexp(nd,nexptotp,6,8))
+            call subdividebox(sourcesort(1,istart),npts,
+     1           centers(1,ibox),boxsize,
+     2           gboxind,gboxfl,gboxsubcenters)
+            call dreorderf(3,npts,sourcesort(1,istart),
+     1           gboxsort,gboxind)
+            if(ifcharge.eq.1) then
+              allocate(gboxcgsort(nd,npts))
+              call dreorderf(2*nd,npts,chargesort(1,istart),
+     1             gboxcgsort,gboxind)
+            endif
+            if(ifdipole.eq.1) then
+              allocate(gboxdpsort(nd,3,npts))
+              call dreorderf(6*nd,npts,dipvecsort(1,1,istart),
+     1             gboxdpsort,gboxind)
+            endif
+cccccc bad code, note gboxmexp is an array not scalar
+            gboxmexp=0
+            do i=1,8
+              if(gboxfl(1,i).gt.0) then
+                jstart=gboxfl(1,i)
+                jend=gboxfl(2,i)
+                npts0=jend-jstart+1
+                jbox=list4(ibox)
+                if(npts0.gt.0) then
+                  if(ifcharge.eq.1.and.ifdipole.eq.0) then
+                    call h3dformmpc(nd,zk,rscales,
+     1                   gboxsort(1,jstart),
+     2                   gboxcgsort(1,jstart),
+     3                   npts0,gboxsubcenters(1,i),nterms,
+     4                   gboxmexp(1,i),wlege,nlege)          
+                  endif
+                  if(ifcharge.eq.0.and.ifdipole.eq.1) then
+                    call h3dformmpd(nd,zk,rscales,
+     1                   gboxsort(1,jstart),
+     2                   gboxdpsort(1,1,jstart),
+     3                   npts0,gboxsubcenters(1,i),nterms,
+     4                   gboxmexp(1,i),wlege,nlege)          
+                  endif
+                  if(ifcharge.eq.1.and.ifdipole.eq.1) then
+                    call h3dformmpcd(nd,zk,rscales,
+     1                   gboxsort(1,jstart),
+     2                   gboxcgsort(1,jstart),
+     3                   gboxdpsort(1,1,jstart),
+     4                   npts0,gboxsubcenters(1,i),nterms,
+     5                   gboxmexp(1,i),wlege,nlege)          
+                  endif
+ccc    convert to plane wave
+                  call mpscale(nd,nterms,gboxmexp(1,i),
+     1                 rsc,tmp(1,0,-nterms,ithd))
+c
+cc                process up down for current box
+c
+                  call hmpoletoexp(nd,tmp(1,0,-nterms,ithd),nterms,
+     1                 nlams,nfourier,
+     2                 nexptot,mexpf1(1,1,ithd),mexpf2(1,1,ithd),rlsc)
+
+                  call hftophys(nd,mexpf1(1,1,ithd),nlams,nfourier,
+     1                 nphysical,gboxwexp(1,1,1,i),fexp)
+
+                  call hftophys(nd,mexpf2(1,1,ithd),nlams,nfourier,
+     1                 nphysical,gboxwexp(1,1,2,i),fexp)
+
+                  call hprocessgboxudexp(nd,gboxwexp(1,1,1,i),
+     1                 gboxwexp(1,1,2,i),i,nexptotp,
+     2                 pgboxwexp(1,1,jbox,1),
+     3                 pgboxwexp(1,1,jbox,2),
+     4                 xshift,yshift,zshift)
+c
+cc                process north-south for current box
+c
+                  call rotztoy(nd,nterms,tmp(1,0,-nterms,ithd),
+     1                 tmp2(1,0,-nterms,ithd),rdminus)
+                  call hmpoletoexp(nd,tmp2(1,0,-nterms,ithd),
+     1                 nterms,nlams,nfourier,
+     2                 nexptot,mexpf1(1,1,ithd),mexpf2(1,1,ithd),rlsc)
+
+                  call hftophys(nd,mexpf1(1,1,ithd),nlams,nfourier,
+     1                 nphysical,gboxwexp(1,1,3,i),fexp)
+
+                  call hftophys(nd,mexpf2(1,1,ithd),nlams,nfourier,
+     1                 nphysical,gboxwexp(1,1,4,i),fexp)
+
+                  call hprocessgboxnsexp(nd,gboxwexp(1,1,3,i),
+     1                 gboxwexp(1,1,4,i),i,nexptotp,
+     2                 pgboxwexp(1,1,jbox,3),
+     3                 pgboxwexp(1,1,jbox,4),
+     4                 xshift,yshift,zshift)
+
+c
+cc                process east-west for current box
+
+                  call rotztox(nd,nterms,tmp(1,0,-nterms,ithd),
+     1                 tmp2(1,0,-nterms,ithd),rdplus)
+                  call hmpoletoexp(nd,tmp2(1,0,-nterms,ithd),
+     1                 nterms,nlams,nfourier,
+     2                 nexptot,mexpf1(1,1,ithd),mexpf2(1,1,ithd),rlsc)
+
+                  call hftophys(nd,mexpf1(1,1,ithd),nlams,nfourier,
+     1                 nphysical,gboxwexp(1,1,5,i),fexp)
+
+                  call hftophys(nd,mexpf2(1,1,ithd),nlams,nfourier,
+     1                 nphysical,gboxwexp(1,1,6,i),fexp)
+                
+                  call hprocessgboxewexp(nd,gboxwexp(1,1,5,i),
+     1                 gboxwexp(1,1,6,i),i,nexptotp,
+     2                 pgboxwexp(1,1,jbox,5),
+     3                 pgboxwexp(1,1,jbox,6),
+     4                 xshift,yshift,zshift)
+                endif
+              endif
+            enddo
+            deallocate(gboxfl,gboxsubcenters)
+            deallocate(gboxind,gboxsort)
+            if(ifcharge.eq.1) then
+              deallocate(gboxcgsort)
+            endif
+            if(ifdipole.eq.1) then
+              deallocate(gboxdpsort)
+            endif
+            deallocate(gboxmexp)
+            deallocate(gboxwexp)
+          endif
+        endif
+      enddo
+C$OMP END PARALLEL DO
+      call cpu_time(time2)
+C$    time2=omp_get_wtime()
+      return
+      end
+c
+c
+c
+c
+c
+c
+c
+c--------------------------------------------------------------------
+      subroutine hprocessgboxudexp(nd,mexpugbox,mexpdgbox,jbox,
+     1           nexptotp,mexpuall,mexpdall,
+     2           xs,ys,zs)
+c--------------------------------------------------------------------
+c      process up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer idim,nd
+      integer jbox,i
+      integer nexptotp
+      double complex mexpugbox(nd,nexptotp)
+      double complex mexpdgbox(nd,nexptotp)
+      double complex mexpuall(nd,nexptotp)
+      double complex mexpdall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double complex ztmp,ztmp2
+
+c
+cc       move all ghost box contributions to the child 1
+c
+
+c      add contributions due to child 1
+      if(jbox.eq.1) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + mexpugbox(idim,i)
+            mexpdall(idim,i) = mexpdall(idim,i) + mexpdgbox(idim,i)
+          enddo
+        enddo
+      endif
+      
+c      add contributions due to child 2
+      if(jbox.eq.2) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + 
+     1                         mexpugbox(idim,i)*xs(-1,i)
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*xs(1,i)
+          enddo
+        enddo
+      endif
+  
+c      add contributions due to child 3
+      if(jbox.eq.3) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) +
+     1                         mexpugbox(idim,i)*ys(-1,i)
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*ys(1,i)
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 4
+      if(jbox.eq.4) then
+        do i=1,nexptotp
+          ztmp = ys(1,i)*xs(1,i)
+          ztmp2 = ys(-1,i)*xs(-1,i)
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + 
+     1                         mexpugbox(idim,i)*ztmp2
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 5
+      if(jbox.eq.5) then
+        do i=1,nexptotp
+          ztmp = 1.0d0/zs(1,i)
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + 
+     1                         mexpugbox(idim,i)*ztmp
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*zs(1,i)
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 6
+      if(jbox.eq.6) then
+        do i=1,nexptotp
+          ztmp = xs(1,i)*zs(1,i)
+          ztmp2 = xs(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + 
+     1                         mexpugbox(idim,i)*ztmp2
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 7
+      if(jbox.eq.7) then
+        do i=1,nexptotp
+          ztmp = zs(1,i)*ys(1,i)
+          ztmp2 = ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + 
+     1                         mexpugbox(idim,i)*ztmp2
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 8
+      if(jbox.eq.8) then
+        do i=1,nexptotp
+          ztmp = zs(1,i)*ys(1,i)*xs(1,i)
+          ztmp2 = xs(-1,i)*ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpuall(idim,i) = mexpuall(idim,i) + 
+     1                         mexpugbox(idim,i)*ztmp2
+            mexpdall(idim,i) = mexpdall(idim,i) + 
+     1                         mexpdgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+      return
+      end
+c--------------------------------------------------------------------      
+c
+c
+c--------------------------------------------------------------------
+      subroutine hprocessgboxnsexp(nd,mexpngbox,mexpsgbox,jbox,
+     1           nexptotp,mexpnall,mexpsall,
+     2           xs,ys,zs)
+c--------------------------------------------------------------------
+c      process up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer idim,nd
+      integer jbox,i
+      integer nexptotp
+      double complex mexpngbox(nd,nexptotp)
+      double complex mexpsgbox(nd,nexptotp)
+      double complex mexpnall(nd,nexptotp)
+      double complex mexpsall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double complex ztmp,ztmp2
+
+c
+cc       move all ghost box contributions to the child 1
+c
+
+c      add contributions due to child 1
+      if(jbox.eq.1) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + mexpngbox(idim,i)
+            mexpsall(idim,i) = mexpsall(idim,i) + mexpsgbox(idim,i)
+          enddo
+        enddo
+      endif
+      
+c      add contributions due to child 2
+      if(jbox.eq.2) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + 
+     1                         mexpngbox(idim,i)*ys(-1,i)
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*ys(1,i)
+          enddo
+        enddo
+      endif
+  
+c      add contributions due to child 3
+      if(jbox.eq.3) then
+        do i=1,nexptotp
+          ztmp = 1/zs(1,i)
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) +
+     1                         mexpngbox(idim,i)*ztmp
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*zs(1,i)
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 4
+      if(jbox.eq.4) then
+        do i=1,nexptotp
+          ztmp = ys(1,i)*zs(1,i)
+          ztmp2 = ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + 
+     1                         mexpngbox(idim,i)*ztmp2
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 5
+      if(jbox.eq.5) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + 
+     1                         mexpngbox(idim,i)*xs(-1,i)
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*xs(1,i)
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 6
+      if(jbox.eq.6) then
+        do i=1,nexptotp
+          ztmp = ys(1,i)*xs(1,i)
+          ztmp2 = ys(-1,i)*xs(-1,i)
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + 
+     1                         mexpngbox(idim,i)*ztmp2
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 7
+      if(jbox.eq.7) then
+        do i=1,nexptotp
+          ztmp = xs(1,i)*zs(1,i)
+          ztmp2 = xs(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + 
+     1                         mexpngbox(idim,i)*ztmp2
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 8
+      if(jbox.eq.8) then
+        do i=1,nexptotp
+          ztmp = ys(1,i)*zs(1,i)*xs(1,i)
+          ztmp2 = ys(-1,i)*xs(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpnall(idim,i) = mexpnall(idim,i) + 
+     1                         mexpngbox(idim,i)*ztmp2
+            mexpsall(idim,i) = mexpsall(idim,i) + 
+     1                         mexpsgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+      return
+      end
+c--------------------------------------------------------------------      
+c
+c
+c--------------------------------------------------------------------
+      subroutine hprocessgboxewexp(nd,mexpegbox,mexpwgbox,jbox,
+     1           nexptotp,mexpeall,mexpwall,
+     2           xs,ys,zs)
+c--------------------------------------------------------------------
+c      process up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer idim,nd
+      integer jbox,i
+      integer nexptotp
+      double complex mexpegbox(nd,nexptotp)
+      double complex mexpwgbox(nd,nexptotp)
+      double complex mexpeall(nd,nexptotp)
+      double complex mexpwall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double complex ztmp,ztmp2
+
+c
+cc       move all ghost box contributions to the child 1
+c
+
+c      add contributions due to child 1
+      if(jbox.eq.1) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + mexpegbox(idim,i)
+            mexpwall(idim,i) = mexpwall(idim,i) + mexpwgbox(idim,i)
+          enddo
+        enddo
+      endif
+      
+c      add contributions due to child 2
+      if(jbox.eq.2) then
+        do i=1,nexptotp
+          ztmp = 1/zs(1,i)
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + 
+     1                         mexpegbox(idim,i)*ztmp
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*zs(1,i)
+          enddo
+        enddo
+      endif
+  
+c      add contributions due to child 3
+      if(jbox.eq.3) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) +
+     1                         mexpegbox(idim,i)*ys(-1,i)
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*ys(1,i)
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 4
+      if(jbox.eq.4) then
+        do i=1,nexptotp
+          ztmp = zs(1,i)*ys(1,i)
+          ztmp2 = ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + 
+     1                         mexpegbox(idim,i)*ztmp2
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 5
+      if(jbox.eq.5) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + 
+     1                         mexpegbox(idim,i)*xs(1,i)
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*xs(-1,i)
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 6
+      if(jbox.eq.6) then
+        do i=1,nexptotp
+          ztmp = xs(-1,i)*zs(1,i)
+          ztmp2 = xs(1,i)/zs(1,i)
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + 
+     1                         mexpegbox(idim,i)*ztmp2
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 7
+      if(jbox.eq.7) then
+        do i=1,nexptotp
+          ztmp = xs(-1,i)*ys(1,i)
+          ztmp2 = xs(1,i)*ys(-1,i)
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + 
+     1                         mexpegbox(idim,i)*ztmp2
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+c      add contributions due to child 8
+      if(jbox.eq.8) then
+        do i=1,nexptotp
+          ztmp = xs(-1,i)*ys(1,i)*zs(1,i)
+          ztmp2 = xs(1,i)*ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpeall(idim,i) = mexpeall(idim,i) + 
+     1                         mexpegbox(idim,i)*ztmp2
+            mexpwall(idim,i) = mexpwall(idim,i) + 
+     1                         mexpwgbox(idim,i)*ztmp
+          enddo
+        enddo
+      endif
+
+      return
+      end
+c--------------------------------------------------------------------   c
+c--------------------------------------------------------------------   c
+c
+c--------------------------------------------------------------------
+      subroutine h3dlist4shift(nd,mexpupphys,mexpdownphys,pgboxwexp,
+     1           jbox,nexptotp,xs,ys,zs,
+     2           censrc,centrg,boxsize,dirtype,cntlist4)
+c--------------------------------------------------------------------
+c-------------------------------------------------------------------
+      implicit none
+ccc   input/output variables
+      integer nd
+      integer nexptotp
+      integer jbox
+      integer cntlist4
+      integer dirtype
+      double complex mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      double complex pgboxwexp(nd,nexptotp,cntlist4,6)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double precision boxsize
+      double precision censrc(3),centrg(3)
+ccc   scoped function variables
+      integer dir
+      integer i,ix,iy,iz,idim
+      double complex zmul
+      double precision ctmp(3)
+
+
+      call getlist4pwdir(dir,censrc,centrg,boxsize)
+
+      ctmp(1) = censrc(1) - boxsize/2.0d0
+      ctmp(2) = censrc(2) - boxsize/2.0d0
+      ctmp(3) = censrc(3) - boxsize/2.0d0
+
+      if(dir.eq.1.and.dirtype.eq.1) then
+C        print *,"dir:",dir,"dirtype:",dirtype
+        ix = 1.05d0*(ctmp(1)-centrg(1))/boxsize
+        iy = 1.05d0*(ctmp(2)-centrg(2))/boxsize
+        iz = 1.05d0*(ctmp(3)-centrg(3))/boxsize
+        do i=1,nexptotp
+          zmul = zs(iz,i)*xs(ix,i)*ys(iy,i)
+          do idim=1,nd
+            mexpdownphys(idim,i) = mexpdownphys(idim,i) + 
+     1          pgboxwexp(idim,i,jbox,2)*zmul
+          enddo
+        enddo
+      else if(dir.eq.2.and.dirtype.eq.1) then
+C        print *,"dir:",dir,"dirtype:",dirtype
+        ix = 1.05d0*(ctmp(1)-centrg(1))/boxsize
+        iy = 1.05d0*(ctmp(2)-centrg(2))/boxsize
+        iz = 1.05d0*(ctmp(3)-centrg(3))/boxsize
+        do i=1,nexptotp
+          zmul = zs(-iz,i)*xs(-ix,i)*ys(-iy,i)
+          do idim=1,nd
+            mexpupphys(idim,i) = mexpupphys(idim,i) + 
+     1          pgboxwexp(idim,i,jbox,1)*zmul
+          enddo
+        enddo
+      else if(dir.eq.3.and.dirtype.eq.2) then
+C        print *,"dir:",dir,"dirtype:",dirtype
+        ix = 1.05d0*(ctmp(1)-centrg(1))/boxsize
+        iy = 1.05d0*(ctmp(2)-centrg(2))/boxsize
+        iz = 1.05d0*(ctmp(3)-centrg(3))/boxsize
+        do i=1,nexptotp
+          zmul = zs(iy,i)*xs(iz,i)*ys(ix,i)
+          do idim=1,nd
+            mexpdownphys(idim,i) = mexpdownphys(idim,i) + 
+     1          pgboxwexp(idim,i,jbox,4)*zmul
+          enddo
+        enddo
+      else if(dir.eq.4.and.dirtype.eq.2) then
+C        print *,"dir:",dir,"dirtype:",dirtype
+        ix = 1.05d0*(ctmp(1)-centrg(1))/boxsize
+        iy = 1.05d0*(ctmp(2)-centrg(2))/boxsize
+        iz = 1.05d0*(ctmp(3)-centrg(3))/boxsize
+        do i=1,nexptotp
+          zmul = zs(-iy,i)*xs(-iz,i)*ys(-ix,i)
+          do idim=1,nd
+            mexpupphys(idim,i) = mexpupphys(idim,i) + 
+     1          pgboxwexp(idim,i,jbox,3)*zmul
+          enddo
+        enddo
+      else if(dir.eq.5.and.dirtype.eq.3) then
+C        print *,"dir:",dir,"dirtype:",dirtype
+        ix = 1.05d0*(ctmp(1)-centrg(1))/boxsize
+        iy = 1.05d0*(ctmp(2)-centrg(2))/boxsize
+        iz = 1.05d0*(ctmp(3)-centrg(3))/boxsize
+        do i=1,nexptotp
+          zmul = zs(ix,i)*xs(-iz,i)*ys(iy,i)
+          do idim=1,nd
+            mexpdownphys(idim,i) = mexpdownphys(idim,i) + 
+     1          pgboxwexp(idim,i,jbox,6)*zmul
+          enddo
+        enddo
+      else if(dir.eq.6.and.dirtype.eq.3) then
+C        print *,"dir:",dir,"dirtype:",dirtype
+        ix = 1.05d0*(ctmp(1)-centrg(1))/boxsize
+        iy = 1.05d0*(ctmp(2)-centrg(2))/boxsize
+        iz = 1.05d0*(ctmp(3)-centrg(3))/boxsize
+        do i=1,nexptotp
+          zmul = zs(-ix,i)*xs(iz,i)*ys(-iy,i)
+          do idim=1,nd
+            mexpupphys(idim,i) = mexpupphys(idim,i) + 
+     1          pgboxwexp(idim,i,jbox,5)*zmul
+          enddo
+        enddo
+      else
+C        print *,"dir:",dir
+      endif
+       
+      return
+      end
+c--------------------------------------------------------------------      
+c
+c
+c--------------------------------------------------------------------
+      subroutine hprocesslist3udexplong(nd,zk2,ibox,nboxes,centers,
+     1           rscale,nterms,rmlexp,rlams,whts,nlams,nfourier,
+     2           nphysical,nthmax,nexptot,nexptotp,mexp,nuall,uall,
+     3           ndall,dall,mexpup,mexpdown,
+     4           mexpupphys,mexpdownphys,mexpuall,mexpdall,
+     5           xs,ys,zs,fexpback,rlsc)
+c--------------------------------------------------------------------
+c      process up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer idim,nd
+      integer ibox,nboxes,nterms,nlams,nthmax
+      integer nphysical(nlams),nfourier(nlams)
+      integer nexptot,nexptotp
+      integer nuall,ndall
+      integer uall(*),dall(*)
+      double precision rscale
+      double complex rlams(*),whts(*)
+      double complex, allocatable :: tloc(:,:,:)  
+      double complex mexp(nd,nexptotp,nboxes,6)
+      double complex rmlexp(nd*(nterms+1)*(2*nterms+1),8)
+      double precision centers(3,*)
+      double complex mexpup(nd,nexptot),mexpdown(nd,nexptot)
+      double complex mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      double complex mexpuall(nd,nexptotp),mexpdall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double complex rlsc(0:nterms,0:nterms,nlams)
+      double complex fexpback(*)
+      double complex zk2
+
+c      temp variables
+      integer jbox,i,ix,iy,iz,j
+      double complex ztmp,zmul,ztmp2
+     
+      double precision ctmp(3)
+
+      allocate(tloc(nd,0:nterms,-nterms:nterms))
+
+
+      do i=1,nexptotp
+        do idim=1,nd
+          mexpuall(idim,i) = 0
+          mexpdall(idim,i) = 0
+        enddo
+      enddo
+      
+   
+      ctmp(1) = centers(1,ibox) - rscale/2.0d0
+      ctmp(2) = centers(2,ibox) - rscale/2.0d0
+      ctmp(3) = centers(3,ibox) - rscale/2.0d0
+  
+      
+      do i=1,nuall
+        jbox = uall(i)
+C        print *,"ulist j: ",jbox
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+         
+        do j=1,nexptotp
+          zmul = zs(iz,j)*xs(ix,j)*ys(iy,j)
+          do idim=1,nd
+            mexpdall(idim,j) = mexpdall(idim,j) + 
+     1                         mexp(idim,j,jbox,2)*zmul
+          enddo
+        enddo
+      enddo
+
+      do i=1,ndall
+        jbox = dall(i)
+C        print *,"dlist j: ",jbox
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+
+        do j=1,nexptotp
+          zmul = zs(-iz,j)*xs(-ix,j)*ys(-iy,j)
+          do idim=1,nd
+            mexpuall(idim,j) = mexpuall(idim,j) + 
+     1                         mexp(idim,j,jbox,1)*zmul
+          enddo
+        enddo
+      enddo
+  
+C      print *,mexpuall
+C      print *,mexpdall
+
+
+c
+cc       move contributions to the children
+c
+
+      jbox=1
+c      add contributions due to child 1
+C      jbox = ichild(1,ibox)
+      if(jbox.gt.0) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpuall(idim,i)
+            mexpdownphys(idim,i) = mexpdall(idim,i)
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1                mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1                mexpdownphys,fexpback)
+
+C        print *,tloc
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+c
+c         NOTE: fix rscpow to be 1/rscpow
+c
+        call mpadd(nd,tloc,rmlexp(1,1),nterms)
+      endif
+      
+c      add contributions due to child 2
+C      jbox = ichild(2,ibox)
+      if(jbox.gt.0) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpuall(idim,i)*xs(1,i)
+            mexpdownphys(idim,i) = mexpdall(idim,i)*xs(-1,i)
+          enddo
+        enddo
+ 
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call mpadd(nd,tloc,rmlexp(1,2),nterms)
+
+      endif
+  
+c      add contributions due to child 3
+C      jbox = ichild(3,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpuall(idim,i)*ys(1,i)
+            mexpdownphys(idim,i) = mexpdall(idim,i)*ys(-1,i)
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+
+        call mpadd(nd,tloc,rmlexp(1,3),nterms)
+
+      endif
+
+c      add contributions due to child 4
+C      jbox = ichild(4,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = ys(1,i)*xs(1,i)
+          ztmp2 = ys(-1,i)*xs(-1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpuall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+
+        call mpadd(nd,tloc,rmlexp(1,4),nterms)
+
+      endif
+
+c      add contributions due to child 5
+C      jbox = ichild(5,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = 1.0d0/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpuall(idim,i)*zs(1,i)
+            mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+
+        call mpadd(nd,tloc,rmlexp(1,5),nterms)
+
+      endif
+
+c      add contributions due to child 6
+C      jbox = ichild(6,ibox)
+
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = xs(1,i)*zs(1,i)
+          ztmp2 = xs(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpuall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call mpadd(nd,tloc,rmlexp(1,6),nterms)
+
+
+      endif
+
+c      add contributions due to child 7
+C      jbox = ichild(7,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = zs(1,i)*ys(1,i)
+          ztmp2 = ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpuall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call mpadd(nd,tloc,rmlexp(1,7),nterms)
+
+      endif
+
+c      add contributions due to child 8
+C      jbox = ichild(8,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = zs(1,i)*ys(1,i)*xs(1,i)
+          ztmp2 = xs(-1,i)*ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpuall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpdall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call mpadd(nd,tloc,rmlexp(1,8),nterms)
+
+      endif
+
+      return
+      end
+c--------------------------------------------------------------------      
+
+      subroutine hprocesslist3nsexplong(nd,zk2,ibox,nboxes,centers,
+     1           rscale,nterms,rmlexp,rlams,whts,nlams,nfourier,
+     2           nphysical,nthmax,nexptot,nexptotp,mexp,nnall,nall,
+     3           nsall,sall,mexpup,mexpdown,
+     4           mexpupphys,mexpdownphys,mexpnall,mexpsall,
+     5           rdplus,xs,ys,zs,fexpback,rlsc)
+c--------------------------------------------------------------------
+c      create up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer nd
+      integer ibox,nboxes,nterms,nlams,nthmax
+      integer nphysical(nlams),nfourier(nlams)
+      integer nexptot,nexptotp
+      integer nnall,nsall
+      integer nall(*),sall(*)
+      double precision rscale
+      double complex rlams(*),whts(*)
+      double complex, allocatable :: tloc(:,:,:)
+      double complex, allocatable :: tloc2(:,:,:)
+      double complex mexp(nd,nexptotp,nboxes,6)
+      double precision rdplus(0:nterms,0:nterms,-nterms:nterms)
+      double complex rmlexp(nd*(nterms+1)*(2*nterms+1),8)
+      double precision centers(3,*)
+      double complex mexpup(nd,nexptot),mexpdown(nd,nexptot)
+      double complex mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      double complex mexpnall(nd,nexptotp),mexpsall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double complex rlsc(0:nterms,0:nterms,nlams)
+      double complex fexpback(*)
+      double complex zk2
+
+c      temp variables
+      integer jbox,i,ix,iy,iz,j,idim
+      double complex ztmp,zmul,ztmp2
+    
+      double precision ctmp(3)
+      allocate(tloc(nd,0:nterms,-nterms:nterms))
+      allocate(tloc2(nd,0:nterms,-nterms:nterms))
+
+
+      do i=1,nexptotp
+        do idim=1,nd
+          mexpnall(idim,i) = 0
+          mexpsall(idim,i) = 0
+        enddo
+      enddo
+      
+   
+      ctmp(1) = centers(1,ibox) - rscale/2.0d0
+      ctmp(2) = centers(2,ibox) - rscale/2.0d0
+      ctmp(3) = centers(3,ibox) - rscale/2.0d0
+       
+      do i=1,nnall
+        jbox = nall(i)
+
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+         
+        do j=1,nexptotp
+           zmul = zs(iy,j)*xs(iz,j)*ys(ix,j)
+           do idim=1,nd
+             mexpsall(idim,j) = mexpsall(idim,j) + 
+     1                          mexp(idim,j,jbox,4)*zmul
+           enddo
+        enddo
+
+      enddo
+
+      do i=1,nsall
+        jbox = sall(i)
+
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+         
+        do j=1,nexptotp
+          zmul = zs(-iy,j)*xs(-iz,j)*ys(-ix,j)
+          do idim=1,nd
+            mexpnall(idim,j) = mexpnall(idim,j) + 
+     1                         mexp(idim,j,jbox,3)*zmul
+          enddo
+        enddo
+      enddo
+
+c
+cc       move contributions to the children
+c
+
+
+c      add contributions due to child 1
+C      jbox = ichild(1,ibox)
+      jbox=1
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpnall(idim,i)
+            mexpdownphys(idim,i) = mexpsall(idim,i)
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,1),nterms)
+
+      endif
+
+c      add contributions due to child 2
+C      jbox = ichild(2,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpnall(idim,i)*ys(1,i)
+            mexpdownphys(idim,i) = mexpsall(idim,i)*ys(-1,i)      
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,2),nterms)
+
+
+      endif
+  
+c      add contributions due to child 3
+C      jbox = ichild(3,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = 1/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpnall(idim,i)*zs(1,i)
+            mexpdownphys(idim,i) = mexpsall(idim,i)*ztmp
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,3),nterms)
+
+      endif
+
+c      add contributions due to child 4
+C      jbox = ichild(4,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = ys(1,i)*zs(1,i)
+          ztmp2 = ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpnall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpsall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,4),nterms)
+
+      endif
+
+c      add contributions due to child 5
+C      jbox = ichild(5,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpnall(idim,i)*xs(1,i)
+            mexpdownphys(idim,i) = mexpsall(idim,i)*xs(-1,i)      
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,5),nterms)
+
+      endif
+
+c      add contributions due to child 6
+C      jbox = ichild(6,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = ys(1,i)*xs(1,i)
+          ztmp2 = ys(-1,i)*xs(-1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpnall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpsall(idim,i)*ztmp2      
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,6),nterms)
+      endif
+
+c      add contributions due to child 7
+C      jbox = ichild(7,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = xs(1,i)*zs(1,i)
+          ztmp2 = xs(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpnall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpsall(idim,i)*ztmp2      
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+        call mpadd(nd,tloc2,rmlexp(1,7),nterms)
+      endif
+
+c      add contributions due to child 8
+C      jbox = ichild(8,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = ys(1,i)*zs(1,i)*xs(1,i)
+          ztmp2 = ys(-1,i)*xs(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpnall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpsall(idim,i)*ztmp2      
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotytoz(nd,nterms,tloc,tloc2,rdplus)
+
+
+        call mpadd(nd,tloc2,rmlexp(1,8),nterms)
+      endif
+
+      return
+      end
+c--------------------------------------------------------------------      
+
+      subroutine hprocesslist3ewexplong(nd,zk2,ibox,nboxes,centers,
+     1           rscale,nterms,rmlexp,rlams,whts,nlams,nfourier,
+     2           nphysical,nthmax,nexptot,nexptotp,mexp,neall,eall,
+     3           nwall,wall,mexpup,mexpdown,
+     4           mexpupphys,mexpdownphys,mexpeall,mexpwall,
+     5           rdminus,xs,ys,zs,fexpback,rlsc)
+c--------------------------------------------------------------------
+c      create up down expansions for box ibox
+c-------------------------------------------------------------------
+      implicit none
+      integer nd
+      integer ibox,nboxes,nterms,nlams,nthmax
+      integer nphysical(nlams),nfourier(nlams)
+      integer nexptot,nexptotp
+      integer neall,nwall
+      integer eall(*),wall(*)
+      double precision rscale
+      double complex rlams(*),whts(*)
+      double complex, allocatable :: tloc(:,:,:),tloc2(:,:,:)
+      double complex mexp(nd,nexptotp,nboxes,6)
+      double precision rdminus(0:nterms,0:nterms,-nterms:nterms)
+      double complex rmlexp(nd*(nterms+1)*(2*nterms+1),8)
+      double precision centers(3,*)
+      double complex mexpup(nd,nexptot),mexpdown(nexptot)
+      double complex mexpupphys(nd,nexptotp),mexpdownphys(nd,nexptotp)
+      double complex mexpeall(nd,nexptotp),mexpwall(nd,nexptotp)
+      double complex xs(-5:5,nexptotp),ys(-5:5,nexptotp)
+      double complex zs(5,nexptotp)
+      double complex rlsc(0:nterms,0:nterms,nlams)
+      double complex fexpback(*)
+      double complex zk2
+
+c      temp variables
+      integer jbox,i,ix,iy,iz,j,l,idim
+      double complex ztmp,zmul,ztmp2
+     
+      double precision ctmp(3)
+
+      allocate(tloc(nd,0:nterms,-nterms:nterms))
+      allocate(tloc2(nd,0:nterms,-nterms:nterms))
+
+
+      do i=1,nexptotp
+        do idim=1,nd
+          mexpeall(idim,i) = 0
+          mexpwall(idim,i) = 0
+        enddo
+      enddo
+      
+   
+      ctmp(1) = centers(1,ibox) - rscale/2.0d0
+      ctmp(2) = centers(2,ibox) - rscale/2.0d0
+      ctmp(3) = centers(3,ibox) - rscale/2.0d0
+       
+      do i=1,neall
+        jbox = eall(i)
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+         
+        do j=1,nexptotp
+          zmul = zs(ix,j)*xs(-iz,j)*ys(iy,j)
+          do idim=1,nd
+            mexpwall(idim,j) = mexpwall(idim,j) + 
+     1                         mexp(idim,j,jbox,6)*zmul
+          enddo
+        enddo
+      enddo
+
+      do i=1,nwall
+        jbox = wall(i)
+
+        ix = 1.05d0*(centers(1,jbox)-ctmp(1))/rscale
+        iy = 1.05d0*(centers(2,jbox)-ctmp(2))/rscale
+        iz = 1.05d0*(centers(3,jbox)-ctmp(3))/rscale
+
+         
+        do j=1,nexptotp
+          zmul = zs(-ix,j)*xs(iz,j)*ys(-iy,j)
+          do idim=1,nd
+            mexpeall(idim,j) = mexpeall(idim,j) + 
+     1                         mexp(idim,j,jbox,5)*zmul
+          enddo
+        enddo
+      enddo
+
+c
+cc       move contributions to the children
+c
+
+
+c      add contributions due to child 1
+C      jbox = ichild(1,ibox)
+      jbox=1
+      if(jbox.gt.0) then
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpeall(idim,i)
+            mexpdownphys(idim,i) = mexpwall(idim,i)
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,1),nterms)
+
+      endif
+
+c      add contributions due to child 2
+C      jbox = ichild(2,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = 1/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpeall(idim,i)*zs(1,i)      
+            mexpdownphys(idim,i) = mexpwall(idim,i)*ztmp
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,2),nterms)
+
+      endif
+  
+c      add contributions due to child 3
+C      jbox = ichild(3,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpeall(idim,i)*ys(1,i)
+            mexpdownphys(idim,i) = mexpwall(idim,i)*ys(-1,i)
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,3),nterms)
+
+      endif
+
+c      add contributions due to child 4
+C      jbox = ichild(4,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = zs(1,i)*ys(1,i)
+          ztmp2 = ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpeall(idim,i)*ztmp      
+            mexpdownphys(idim,i) = mexpwall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,4),nterms)
+
+      endif
+
+c      add contributions due to child 5
+C      jbox = ichild(5,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpeall(idim,i)*xs(-1,i)
+            mexpdownphys(idim,i) = mexpwall(idim,i)*xs(1,i)
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,5),nterms)
+      endif
+
+c      add contributions due to child 6
+C      jbox = ichild(6,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = xs(-1,i)*zs(1,i)
+          ztmp2 = xs(1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  =  mexpeall(idim,i)*ztmp      
+            mexpdownphys(idim,i) = mexpwall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,6),nterms)
+      endif
+
+c      add contributions due to child 7
+C      jbox = ichild(7,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = xs(-1,i)*ys(1,i)
+          ztmp2 = xs(1,i)*ys(-1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpeall(idim,i)*ztmp
+            mexpdownphys(idim,i) = mexpwall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,7),nterms)
+
+      endif
+
+c      add contributions due to child 8
+C      jbox = ichild(8,ibox)
+      if(jbox.gt.0) then
+
+        do i=1,nexptotp
+          ztmp = xs(-1,i)*ys(1,i)*zs(1,i)
+          ztmp2 = xs(1,i)*ys(-1,i)/zs(1,i)
+          do idim=1,nd
+            mexpupphys(idim,i)  = mexpeall(idim,i)*ztmp      
+            mexpdownphys(idim,i) = mexpwall(idim,i)*ztmp2
+          enddo
+        enddo
+
+        call hphystof(nd,mexpup,nlams,nfourier,nphysical,
+     1               mexpupphys,fexpback)
+ 
+        call hphystof(nd,mexpdown,nlams,nfourier,nphysical,
+     1              mexpdownphys,fexpback)
+
+        call hexptolocal(nd,tloc,nterms,zk2,rlams,whts,
+     1         nlams,nfourier,nthmax,nexptot,mexpup,mexpdown,
+     2         rscale,rlsc)
+
+        call rotztox(nd,nterms,tloc,tloc2,rdminus)
+
+        call mpadd(nd,tloc2,rmlexp(1,8),nterms)
+
+      endif
 
       return
       end

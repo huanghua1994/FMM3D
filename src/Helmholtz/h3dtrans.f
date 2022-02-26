@@ -87,7 +87,6 @@ C
       ldc = max(nterms,nterms2)
       nq = max(nquad,2*ldc+2)
 
-
       allocate(marray(nd,0:ldc,-ldc:ldc))
       allocate(marray1(nd,0:nterms,-nterms:nterms))
       allocate(mptemp(nd,0:nterms2,-nterms2:nterms2))
@@ -231,7 +230,7 @@ c***********************************************************************
       implicit real *8 (a-h,o-z)
       integer nterms,nterms2,nquad,ier,lmp,lmpn,ldc,iynm,lynm,nd
       real *8   zshift,scale,scale2,radius
-      real *8   xnodes(1),wts(1)
+      real *8   xnodes(*),wts(*)
       real *8   ynm(0:nterms,0:nterms)
       real *8   ynmd(0:nterms,0:nterms)
       complex *16 phitemp(nd,nquad,-nterms:nterms)
@@ -499,7 +498,7 @@ C---------------------------------------------------------------------
       integer nterms,nterms2,nquad,nd
       integer l,lw,m,jnew,knew
       real *8 zshift
-      real *8 xnodes(1),wts(1)
+      real *8 xnodes(*),wts(*)
       real *8 ynm(0:nterms,0:nterms)
       real *8 ynmd(0:nterms,0:nterms)
       complex *16 phitemp(nd,nquad,-nterms:nterms)

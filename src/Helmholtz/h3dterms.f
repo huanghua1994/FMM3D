@@ -27,9 +27,9 @@ c
 c
 c-----------------------------------------------------------------------------
 c
-      complex *16  zk, z1, z2, z3, jfun(0:2000), ht0,
+      complex *16  zk, z1, z2, z3, jfun(0:5000), ht0,
      1             ht1, ht2, fjder(0:1), ztmp,
-     1             hfun(0:2000), fhder(0:1)
+     1             hfun(0:5000), fhder(0:1)
 c
 c
       z1 = (zk*size)*1.5d0
@@ -39,7 +39,7 @@ c       set frequency to something more reasonable, nterms is
 c       approximately the same for all small frequencies
 c       
 c
-      ntmax = 1000
+      ntmax = 5000
       ifder = 0
       rscale = 1.0d0
       if (cdabs(zk*size) .lt. 1.0d0) rscale = cdabs(zk*size)
@@ -47,15 +47,18 @@ c
       z2 = (zk*size) * dsqrt(3d0)/2.0d0
 
       call besseljs3d(ntmax, z2, rscale, jfun, ifder, fjder)
+
 c
       xtemp1 = cdabs(jfun(0)*hfun(0))
       xtemp2 = cdabs(jfun(1)*hfun(1))
       xtemp0 = xtemp1+xtemp2
+
+
       nterms = 1
       do j = 2, ntmax
         xtemp1 = cdabs(jfun(j)*hfun(j))
         xtemp2 = cdabs(jfun(j-1)*hfun(j-1))
-        xtemp = xtemp1+xtemp2
+        xtemp = (xtemp1+xtemp2)*abs(hfun(0))*abs(zk)
         if(xtemp .lt. eps*xtemp0)then
           nterms = j + 1
           return
@@ -63,9 +66,9 @@ c
 c
       enddo
 c
-c       ... computational box is too big, set nterms to 1000
+c       ... computational box is too big, set nterms to 5000
 c
-        nterms=1000
+        nterms=5000
 c
       return
       end

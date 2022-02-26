@@ -187,7 +187,7 @@ c       pottarg: complex *16 (ntarget): potential at target locations
 c       fldtarg: complex *16 (3,ntarget): field (-gradient) at target locations 
 c
       integer ier,iprec,nsource
-      integer ifcharge,ifdipole
+      integer ifcharge,ifdipole,iper
       double precision source(3,nsource)
       
       double complex charge(*),dipstr(*)
@@ -289,9 +289,10 @@ C$OMP END PARALLEL DO
       endif
 
       nd = 2
+      ier = 0
       call lfmm3d(nd,eps,nsource,source,ifcharge,charge,
-     1  ifdipole,dipvec_in,ifpgh,pottmp,gradtmp,hess,ntarg,
-     2  targ,ifpghtarg,pottargtmp,gradtargtmp,hesstarg)
+     1  ifdipole,dipvec_in,iper,ifpgh,pottmp,gradtmp,hess,ntarg,
+     2  targ,ifpghtarg,pottargtmp,gradtargtmp,hesstarg,ier)
 
       if(ifpot.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)      
@@ -381,13 +382,15 @@ c
       integer nt,ns
       double precision source(3,*), targ(3,*)
       double complex charge(*),dipstr(*)
+      double precision, allocatable :: charge_in(:,:)
       double precision dipvec(3,*)
       double complex pot(*),fld(3,*),pottarg(*),fldtarg(3,*)
 
-      double complex, allocatable :: pottmp(:),gradtmp(:,:)
-      double complex, allocatable :: pottargtmp(:),gradtargtmp(:,:)
+      double precision, allocatable :: pottmp(:,:),gradtmp(:,:,:)
+      double precision, allocatable :: pottargtmp(:,:),
+     1   gradtargtmp(:,:,:)
 
-      double complex, allocatable :: dipvec_in(:,:)
+      double precision, allocatable :: dipvec_in(:,:,:)
       double precision thresh
 
       integer i,j,nd
@@ -395,6 +398,11 @@ c
 
       double precision xmin,xmax,ymin,ymax,zmin,zmax
       double precision bsize,btmp,sizex,sizey,sizez
+
+      double complex ima
+      data ima/(0.0d0,1.0d0)/
+
+      integer ntmp
 
       nt = ntarg
       ns = nsource
@@ -408,41 +416,58 @@ c
       if(ifpottarg.eq.1) ifpghtarg = 1
       if(iffldtarg.eq.1) ifpghtarg = 2
 
-      if(ifpgh.eq.1) allocate(pottmp(ns),gradtmp(3,1))
-      if(ifpgh.eq.2) allocate(pottmp(ns),gradtmp(3,ns))
+      if(ifpgh.eq.1) allocate(pottmp(2,ns),gradtmp(2,3,1))
+      if(ifpgh.eq.2) allocate(pottmp(2,ns),gradtmp(2,3,ns))
 
-      if(ifpghtarg.eq.1) allocate(pottargtmp(nt),gradtargtmp(3,1))
-      if(ifpghtarg.eq.2) allocate(pottargtmp(nt),gradtargtmp(3,nt))
+      if(ifpghtarg.eq.1) allocate(pottargtmp(2,nt),gradtargtmp(2,3,1))
+      if(ifpghtarg.eq.2) allocate(pottargtmp(2,nt),gradtargtmp(2,3,nt))
+
+      if(ifcharge.eq.1) then
+        allocate(charge_in(2,ns))
+C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
+        do i=1,ns
+          charge_in(1,i) = real(charge(i))
+          charge_in(2,i) = imag(charge(i))
+        enddo
+C$OMP END PARALLEL DO
+        if(ifdipole.ne.1) allocate(dipvec_in(2,3,1))
+      endif
 
 
       if(ifdipole.eq.1) then
-        allocate(dipvec_in(3,ns))
+        allocate(dipvec_in(2,3,ns))
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,ns
-          dipvec_in(1,i) = dipstr(i)*dipvec(1,i)
-          dipvec_in(2,i) = dipstr(i)*dipvec(2,i)
-          dipvec_in(3,i) = dipstr(i)*dipvec(3,i)
+          dipvec_in(1,1,i) = real(dipstr(i))*dipvec(1,i)
+          dipvec_in(2,1,i) = imag(dipstr(i))*dipvec(1,i)
+          dipvec_in(1,2,i) = real(dipstr(i))*dipvec(2,i)
+          dipvec_in(2,2,i) = imag(dipstr(i))*dipvec(2,i)
+          dipvec_in(1,3,i) = real(dipstr(i))*dipvec(3,i)
+          dipvec_in(2,3,i) = imag(dipstr(i))*dipvec(3,i)
         enddo
 C$OMP END PARALLEL DO
+        if(ifcharge.ne.1) allocate(charge_in(2,1))
       endif
 
-      
 
       if(ifpgh.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,ns
-          pottmp(i) = 0
+          pottmp(1,i) = 0
+          pottmp(2,i) = 0
         enddo
 C$OMP END PARALLEL DO
       endif
 
       if(ifpgh.eq.2) then
-C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
+C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,j)
         do i=1,ns
-          pottmp(i) = 0
-          gradtmp(1,i) = 0
-          gradtmp(2,i) = 0
-          gradtmp(3,i) = 0
+          do j=1,2
+            pottmp(j,i) = 0
+            gradtmp(j,1,i) = 0
+            gradtmp(j,2,i) = 0
+            gradtmp(j,3,i) = 0
+          enddo
         enddo
 C$OMP END PARALLEL DO
       endif
@@ -451,18 +476,21 @@ C$OMP END PARALLEL DO
       if(ifpghtarg.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,nt
-          pottargtmp(i) = 0
+          pottargtmp(1,i) = 0
+          pottargtmp(2,i) = 0
         enddo
 C$OMP END PARALLEL DO
       endif
 
       if(ifpghtarg.eq.2) then
-C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
+C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,j)
         do i=1,nt
-          pottargtmp(i) = 0
-          gradtargtmp(1,i) = 0
-          gradtargtmp(2,i) = 0
-          gradtargtmp(3,i) = 0
+          do j=1,2
+            pottargtmp(j,i) = 0
+            gradtargtmp(j,1,i) = 0
+            gradtargtmp(j,2,i) = 0
+            gradtargtmp(j,3,i) = 0
+          enddo
         enddo
 C$OMP END PARALLEL DO
       endif
@@ -515,6 +543,8 @@ c
       endif
       thresh = bsize*1.0d-16
 
+      ntmp = 1
+
 c
 c      compute potential at source
 c  
@@ -523,8 +553,8 @@ c
         if(ifpgh.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,ns
-            call l3ddirectcp(nd,source,charge,ns,
-     1            source(1,i),1,pottmp(i),thresh)
+            call l3ddirectcp(nd,source,charge_in,ns,
+     1            source(1,i),1,pottmp(1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -532,8 +562,8 @@ C$OMP END PARALLEL DO
         if(ifpgh.eq.2) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,ns
-            call l3ddirectcg(nd,source,charge,ns,
-     1            source(1,i),1,pottmp(i),gradtmp(1,i),thresh)
+            call l3ddirectcg(nd,source,charge_in,ns,
+     1            source(1,i),1,pottmp(1,i),gradtmp(1,1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -542,8 +572,8 @@ C$OMP END PARALLEL DO
         if(ifpghtarg.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,nt
-            call l3ddirectcp(nd,source,charge,ns,
-     1            targ(1,i),1,pottargtmp(i),thresh)
+            call l3ddirectcp(nd,source,charge_in,ns,
+     1            targ(1,i),1,pottargtmp(1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -551,9 +581,9 @@ C$OMP END PARALLEL DO
         if(ifpghtarg.eq.2) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,nt
-            call l3ddirectcg(nd,source,charge,ns,
-     1            targ(1,i),1,pottargtmp(i),
-     2            gradtargtmp(1,i),thresh)
+            call l3ddirectcg(nd,source,charge_in,ns,
+     1            targ(1,i),1,pottargtmp(1,i),
+     2            gradtargtmp(1,1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -565,7 +595,7 @@ C$OMP END PARALLEL DO
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,ns
             call l3ddirectdp(nd,source,dipvec_in,ns,
-     1            source(1,i),1,pottmp(i),thresh)
+     1            source(1,i),1,pottmp(1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -574,7 +604,7 @@ C$OMP END PARALLEL DO
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,ns
             call l3ddirectdg(nd,source,dipvec_in,ns,
-     1            source(1,i),1,pottmp(i),gradtmp(1,i),thresh)
+     1            source(1,i),1,pottmp(1,i),gradtmp(1,1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -584,7 +614,7 @@ C$OMP END PARALLEL DO
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,nt
             call l3ddirectdp(nd,source,dipvec_in,ns,
-     1            targ(1,i),1,pottargtmp(i),thresh)
+     1            targ(1,i),1,pottargtmp(1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -593,8 +623,8 @@ C$OMP END PARALLEL DO
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,nt
             call l3ddirectdg(nd,source,dipvec_in,ns,
-     1            targ(1,i),1,pottargtmp(i),
-     2            gradtargtmp(1,i),thresh)
+     1            targ(1,i),1,pottargtmp(1,i),
+     2            gradtargtmp(1,1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -606,8 +636,8 @@ C$OMP END PARALLEL DO
         if(ifpgh.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,ns
-            call l3ddirectcdp(nd,source,charge,dipvec_in,ns,
-     1            source(1,i),1,pottmp(i),thresh)
+            call l3ddirectcdp(nd,source,charge_in,dipvec_in,ns,
+     1            source(1,i),1,pottmp(1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -615,8 +645,8 @@ C$OMP END PARALLEL DO
         if(ifpgh.eq.2) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,ns
-            call l3ddirectcdg(nd,source,charge,dipvec_in,ns,
-     1            source(1,i),1,pottmp(i),gradtmp(1,i),thresh)
+            call l3ddirectcdg(nd,source,charge_in,dipvec_in,ns,
+     1            source(1,i),1,pottmp(1,i),gradtmp(1,1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -625,18 +655,19 @@ C$OMP END PARALLEL DO
         if(ifpghtarg.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,nt
-            call l3ddirectcdp(nd,source,charge,dipvec_in,ns,
-     1            targ(1,i),1,pottargtmp(i),thresh)
+            call l3ddirectcdp(nd,source,charge_in,dipvec_in,ns,
+     1            targ(1,i),ntmp,pottargtmp(1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
+          stop
         endif
 
         if(ifpghtarg.eq.2) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
           do i=1,nt
-            call l3ddirectcdg(nd,source,charge,dipvec_in,ns,
-     1            targ(1,i),1,pottargtmp(i),
-     2            gradtargtmp(1,i),thresh)
+            call l3ddirectcdg(nd,source,charge_in,dipvec_in,ns,
+     1            targ(1,i),1,pottargtmp(1,i),
+     2            gradtargtmp(1,1,i),thresh)
           enddo
 C$OMP END PARALLEL DO
         endif
@@ -650,7 +681,7 @@ c
       if(ifpot.eq.1) then 
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,ns
-           pot(i) = pottmp(i)
+           pot(i) = pottmp(1,i)+ima*(pottmp(2,i))
         enddo
 C$OMP END PARALLEL DO
       endif
@@ -658,9 +689,9 @@ C$OMP END PARALLEL DO
       if(iffld.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,ns
-           fld(1,i) = -gradtmp(1,i)
-           fld(2,i) = -gradtmp(2,i)
-           fld(3,i) = -gradtmp(3,i)
+           fld(1,i) = -(gradtmp(1,1,i)+ima*gradtmp(2,1,i))
+           fld(2,i) = -(gradtmp(1,2,i)+ima*gradtmp(2,2,i))
+           fld(3,i) = -(gradtmp(1,3,i)+ima*gradtmp(2,3,i))
         enddo
 C$OMP END PARALLEL DO
       endif
@@ -669,7 +700,7 @@ C$OMP END PARALLEL DO
       if(ifpottarg.eq.1) then 
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,nt
-           pottarg(i) = pottargtmp(i)
+           pottarg(i) = pottargtmp(1,i)+ima*pottargtmp(2,i)
         enddo
 C$OMP END PARALLEL DO
       endif
@@ -677,9 +708,9 @@ C$OMP END PARALLEL DO
       if(iffldtarg.eq.1) then
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,nt
-           fldtarg(1,i) = -gradtargtmp(1,i)
-           fldtarg(2,i) = -gradtargtmp(2,i)
-           fldtarg(3,i) = -gradtargtmp(3,i)
+           fldtarg(1,i) = -(gradtargtmp(1,1,i)+ima*gradtargtmp(2,1,i))
+           fldtarg(2,i) = -(gradtargtmp(1,2,i)+ima*gradtargtmp(2,2,i))
+           fldtarg(3,i) = -(gradtargtmp(1,3,i)+ima*gradtargtmp(2,3,i))
         enddo
 C$OMP END PARALLEL DO
       endif

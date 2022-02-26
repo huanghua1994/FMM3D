@@ -2,7 +2,10 @@ Acknowledgments
 ================
 
 Principal contributors to this code base are
-Zydrunas Gimbutas, Leslie Greengard, Jeremy Magland, Libin Lu, Manas Rachh, and Vladimir Rokhlin
+Travis Askham, Zydrunas Gimbutas, Leslie Greengard, Libin Lu, Jeremy Magland, Dhairya Malhotra, Michael O'Neil, Manas Rachh, Vladimir Rokhlin, and Felipe Vico.
 
-Thanks to Joakim Anden, Travis Askham, Alex Barnett, Mike O'Neil, David Stein, Felipe Vico, and Jun Wang 
-for several useful discussions
+Thanks to Guilherme Saturnino for contributing workflows for continuous
+integration and for making the library a pip installable package.
+
+Thanks to Joakim Anden, Alex Barnett, Shidong Jiang, David Stein, and Jun Wang 
+for several useful discussions.

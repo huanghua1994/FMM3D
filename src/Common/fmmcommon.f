@@ -10,6 +10,8 @@ c
 c          dreroderi - pertmute a real array with inverse of
 c                      given permutation
 c 
+c          drescale - rescale a vector with a scalar
+c 
 c          mpzero - zero out a multipole/local expansion
 c  
 c          mpadd - add a multipole expansion to an existing one
@@ -104,8 +106,8 @@ c
 
       implicit none
       integer ndim,idim,i,n
-      double precision arr(ndim,1),arrsort(ndim,1)
-      integer iarr(1)
+      double precision arr(ndim,*),arrsort(ndim,*)
+      integer iarr(*)
 
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,idim)      
       do i=1,n
@@ -134,8 +136,8 @@ c
 
       implicit none
       integer i,idim,ndim,n
-      double precision arr(ndim,1),arrsort(ndim,1)
-      integer iarr(1)
+      double precision arr(ndim,*),arrsort(ndim,*)
+      integer iarr(*)
 
 C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,idim)      
       do i=1,n
@@ -148,6 +150,91 @@ C$OMP END PARALLEL DO
       return
       end
 c----------------------------------------------------------      
+
+
+
+
+
+      subroutine ireorderf(ndim,n,arr,arrsort,iarr)
+c
+cc       this subroutine sorts the array arr and stores
+c        it in arrsort using the sorting order defined by
+c        iarr
+c
+c        arrsort(j,i) = arr(j,iarr(i)), j =1,2,\ldots ndim
+c                                       i=1,2,\ldots n
+c
+
+      implicit none
+      integer ndim,idim,i,n
+      integer arr(ndim,*),arrsort(ndim,*)
+      integer iarr(*)
+
+C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,idim)      
+      do i=1,n
+         do idim=1,ndim
+            arrsort(idim,i) = arr(idim,iarr(i))
+         enddo
+      enddo
+C$OMP END PARALLEL DO      
+
+      return
+      end
+c--------------------------------------------------
+      subroutine ireorderi(ndim,n,arr,arrsort,iarr)
+c
+cc       this subroutine sorts the array arr and stores
+c        it in arrsort using the inverse of the
+c        sorting order defined by
+c        iarr.
+c
+c        Note that this subroutine is the inverse of 
+c        dreorderf
+c
+c        arrsort(j,iarr(i)) = arr(j,i), j =1,2,\ldots ndim
+c                                       i=1,2,\ldots n
+c
+
+      implicit none
+      integer i,idim,ndim,n
+      integer arr(ndim,*),arrsort(ndim,*)
+      integer iarr(*)
+
+C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,idim)      
+      do i=1,n
+         do idim=1,ndim
+            arrsort(idim,iarr(i)) = arr(idim,i)
+         enddo
+      enddo
+C$OMP END PARALLEL DO      
+
+      return
+      end
+c
+c
+c
+c
+c
+c
+      subroutine drescale(n,a,r)
+      implicit none
+      real *8 a(n),r
+      integer i,n
+
+C$OMP PARALLEL DO DEFAULT(SHARED)
+      do i=1,n
+        a(i) = a(i)*r
+      enddo
+C$OMP END PARALLEL DO
+
+      
+
+
+      return
+      end
+
+
+
 
 
       subroutine mpzero(nd,mpole,nterms)
@@ -595,7 +682,7 @@ c-------------------------------------------------------
       character(len=13) str2
       character(len=14) str3
       character(len=19) str4
-      character(len=18) str5
+      character(len=30) str5
 
       str2 = "Failed src to"
       len1 = 13
@@ -635,6 +722,11 @@ c-------------------------------------------------------
       if(ifpgh.eq.2.or.ifpghtarg.eq.2) then
         str5=" pot and grad test"
         len1 = len1 + 18
+      endif
+
+      if(ipgh.eq.3.or.ifpghtarg.eq.3) then
+        str5=" pot, grad, and hess test"
+        len1 = len1+25
       endif
 
       str1 = str2//trim(str3)//trim(str4)//trim(str5)

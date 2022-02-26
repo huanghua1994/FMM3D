@@ -8,8 +8,8 @@
 int main(int argc, char **argv)
 {
   cprin_init("stdout", "fort.13");
-  int ns=2000;
-  int nt=1999;
+  int ns=4000;
+  int nt=3999;
   double *source = (double *)malloc(3*ns*sizeof(double));
   double *targ = (double *)malloc(3*nt*sizeof(double));
 
@@ -18,8 +18,9 @@ int main(int argc, char **argv)
 
   int ntest = 10;
 
-  int ntests = 36;
-  int ipass[36];
+  int ntests = 54;
+  int ipass[54];
+  int ier = 0;
 
   for(int i=0;i<ntests;i++)
   {
@@ -35,11 +36,15 @@ int main(int argc, char **argv)
   double *potex = (double *)malloc(ntest*sizeof(double));
   double *grad = (double *)malloc(3*ns*sizeof(double));
   double *gradex = (double *)malloc(3*ntest*sizeof(double));
+  double *hess = (double *)malloc(6*ns*sizeof(double));
+  double *hessex = (double *)malloc(6*ntest*sizeof(double));
 
   double *pottarg = (double *)malloc(nt*sizeof(double));
   double *pottargex = (double *)malloc(ntest*sizeof(double));
   double *gradtarg = (double *)malloc(3*nt*sizeof(double));
   double *gradtargex = (double *)malloc(3*ntest*sizeof(double));
+  double *hesstarg = (double *)malloc(6*nt*sizeof(double));
+  double *hesstargex = (double *)malloc(6*ntest*sizeof(double));
 
   int nd = 1;
 
@@ -71,7 +76,7 @@ int main(int argc, char **argv)
   }
 
 
-  double eps = 0.5e-6;
+  double eps = 0.51e-3;
 
 
   int itest = 0;
@@ -84,12 +89,12 @@ int main(int argc, char **argv)
   pg = 1;
   pgt = 0;
 
-  lfmm3d_s_c_p_(&eps, &ns, source, charge, pot);
+  lfmm3d_s_c_p_(&eps, &ns, source, charge, pot, &ier);
 
   dzero(ntest,potex);
   l3ddirectcp_(&nd, source, charge, &ns, source, &ntest, potex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -113,13 +118,13 @@ int main(int argc, char **argv)
 
   pg = 2;
   pgt = 0;
-  lfmm3d_s_c_g_(&eps, &ns, source, charge, pot, grad);
+  lfmm3d_s_c_g_(&eps, &ns, source, charge, pot, grad, &ier);
 
   dzero(ntest,potex);
   dzero(3*ntest,gradex);
   l3ddirectcg_(&nd, source, charge, &ns, source, &ntest, potex, gradex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
 
   if(err<eps)
@@ -134,6 +139,39 @@ int main(int argc, char **argv)
 
 
 
+
+  itest += 1;
+  cprin_message("testing source to source");
+  cprin_message("interaction: charges");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+  
+
+  pg = 3;
+  pgt = 0;
+  lfmm3d_s_c_h_(&eps, &ns, source, charge, pot, grad, hess, &ier);
+
+  dzero(ntest,potex);
+  dzero(3*ntest,gradex);
+  dzero(6*ntest,hessex);
+  l3ddirectch_(&nd, source, charge, &ns, source, &ntest, potex, gradex, 
+    hessex,&thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
   itest +=1;
   cprin_message("testing source to source");
   cprin_message("interaction: dipoles");
@@ -143,13 +181,13 @@ int main(int argc, char **argv)
 
   pg = 1;
   pgt = 0;
-  lfmm3d_s_d_p_(&eps, &ns, source, dipvec, pot);
+  lfmm3d_s_d_p_(&eps, &ns, source, dipvec, pot, &ier);
 
   dzero(ntest,potex);
   l3ddirectdp_(&nd, source, dipvec, &ns, source, &ntest, potex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -172,13 +210,45 @@ int main(int argc, char **argv)
 
   pg = 2;
   pgt = 0;
-  lfmm3d_s_d_g_(&eps, &ns, source, dipvec, pot, grad);
+  lfmm3d_s_d_g_(&eps, &ns, source, dipvec, pot, grad, &ier);
 
   dzero(ntest,potex);
   dzero(3*ntest,gradex);
   l3ddirectdg_(&nd, source, dipvec, &ns, source, &ntest, potex, gradex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest +=1;
+  cprin_message("testing source to source");
+  cprin_message("interaction: dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 0;
+  lfmm3d_s_d_h_(&eps, &ns, source, dipvec, pot, grad, hess, &ier);
+
+  dzero(ntest,potex);
+  dzero(3*ntest,gradex);
+  dzero(6*ntest,hessex);
+  l3ddirectdh_(&nd, source, dipvec, &ns, source, &ntest, potex, 
+    gradex, hessex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -200,13 +270,13 @@ int main(int argc, char **argv)
 
   pg = 1;
   pgt = 0;
-  lfmm3d_s_cd_p_(&eps, &ns, source, charge, dipvec, pot);
+  lfmm3d_s_cd_p_(&eps, &ns, source, charge, dipvec, pot, &ier);
 
   dzero(ntest,potex);
   l3ddirectcdp_(&nd, source, charge, dipvec, &ns, source, &ntest, potex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -229,13 +299,13 @@ int main(int argc, char **argv)
 
   pg = 2;
   pgt = 0;
-  lfmm3d_s_cd_g_(&eps, &ns, source, charge, dipvec, pot, grad);
+  lfmm3d_s_cd_g_(&eps, &ns, source, charge, dipvec, pot, grad, &ier);
 
   dzero(ntest,potex);
   dzero(3*ntest,gradex);
   l3ddirectcdg_(&nd, source, charge, dipvec, &ns, source, &ntest, potex, gradex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -250,6 +320,38 @@ int main(int argc, char **argv)
 
 
   itest +=1;
+  cprin_message("testing source to source");
+  cprin_message("interaction: charges + dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 0;
+  lfmm3d_s_cd_h_(&eps, &ns, source, charge, dipvec, pot, grad, hess, &ier);
+
+  dzero(ntest,potex);
+  dzero(3*ntest,gradex);
+  dzero(6*ntest,hessex);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, source, &ntest, 
+    potex, gradex, hessex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest +=1;
   cprin_message("testing source to target");
   cprin_message("interaction: charges");
   cprin_message("output: potentials");
@@ -259,14 +361,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 1;
 
-  lfmm3d_t_c_p_(&eps, &ns, source, charge, &nt, targ, pottarg);
+  lfmm3d_t_c_p_(&eps, &ns, source, charge, &nt, targ, pottarg, &ier);
 
   dzero(ntest,pottargex);
   l3ddirectcp_(&nd, source, charge, &ns, targ, &ntest, 
        pottargex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -291,14 +393,49 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 2;
   lfmm3d_t_c_g_(&eps, &ns, source, charge, &nt, targ, 
-      pottarg, gradtarg);
+      pottarg, gradtarg, &ier);
 
   dzero(ntest,pottargex);
   dzero(3*ntest,gradtargex);
   l3ddirectcg_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
      gradtargex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest += 1;
+  cprin_message("testing source to target");
+  cprin_message("interaction: charges");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+  
+
+
+  pg = 0;
+  pgt = 3;
+  lfmm3d_t_c_h_(&eps, &ns, source, charge, &nt, targ, 
+      pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(ntest,pottargex);
+  dzero(3*ntest,gradtargex);
+  dzero(6*ntest,hesstargex);
+  l3ddirectch_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
+     gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
 
   if(err<eps)
@@ -322,14 +459,14 @@ int main(int argc, char **argv)
 
   pg = 0;
   pgt = 1;
-  lfmm3d_t_d_p_(&eps, &ns, source, dipvec, &nt, targ, pottarg);
+  lfmm3d_t_d_p_(&eps, &ns, source, dipvec, &nt, targ, pottarg, &ier);
 
   dzero(ntest,pottargex);
   l3ddirectdp_(&nd, source, dipvec, &ns, 
      targ, &ntest, pottargex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -353,14 +490,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 2;
   lfmm3d_t_d_g_(&eps, &ns, source, dipvec, &nt, targ, 
-     pottarg, gradtarg);
+     pottarg, gradtarg, &ier);
 
   dzero(ntest,pottargex);
   dzero(3*ntest,gradtargex);
   l3ddirectdg_(&nd, source, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -373,6 +510,38 @@ int main(int argc, char **argv)
   cprin_message("========");
 
 
+
+
+  itest +=1;
+  cprin_message("testing source to target");
+  cprin_message("interaction: dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 0;
+  pgt = 3;
+  lfmm3d_t_d_h_(&eps, &ns, source, dipvec, &nt, targ, 
+     pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(ntest,pottargex);
+  dzero(3*ntest,gradtargex);
+  dzero(6*ntest,hesstargex);
+  l3ddirectdh_(&nd, source, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
   
   itest +=1;
   cprin_message("testing source to target");
@@ -383,14 +552,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 1;
   lfmm3d_t_cd_p_(&eps, &ns, source, charge, dipvec, &nt, targ,
-     pottarg);
+     pottarg, &ier);
 
   dzero(ntest,pottargex);
   l3ddirectcdp_(&nd, source, charge, dipvec, &ns, 
      targ, &ntest, pottargex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -414,14 +583,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 2;
   lfmm3d_t_cd_g_(&eps, &ns, source, charge, dipvec, &nt, 
-     targ, pottarg, gradtarg);
+     targ, pottarg, gradtarg, &ier);
 
   dzero(ntest,pottargex);
   dzero(3*ntest,gradtargex);
   l3ddirectcdg_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -436,6 +605,37 @@ int main(int argc, char **argv)
 
 
   itest +=1;
+  cprin_message("testing source to target");
+  cprin_message("interaction: charges + dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 0;
+  pgt = 3;
+  lfmm3d_t_cd_h_(&eps, &ns, source, charge, dipvec, &nt, 
+     targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(ntest,pottargex);
+  dzero(3*ntest,gradtargex);
+  dzero(6*ntest,hesstargex);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+  itest +=1;
   cprin_message("testing source to source+target");
   cprin_message("interaction: charges");
   cprin_message("output: potentials");
@@ -446,7 +646,7 @@ int main(int argc, char **argv)
   pgt = 1;
 
   lfmm3d_st_c_p_(&eps, &ns, source, charge, pot, 
-    &nt, targ, pottarg);
+    &nt, targ, pottarg, &ier);
 
   dzero(ntest,potex);
   dzero(ntest,pottargex);
@@ -456,7 +656,7 @@ int main(int argc, char **argv)
        pottargex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -481,7 +681,7 @@ int main(int argc, char **argv)
   pg = 2;
   pgt = 2;
   lfmm3d_st_c_g_(&eps, &ns, source, charge, pot, grad, 
-      &nt, targ, pottarg, gradtarg);
+      &nt, targ, pottarg, gradtarg, &ier);
 
   dzero(ntest,potex);
   dzero(3*ntest,gradex);
@@ -492,7 +692,7 @@ int main(int argc, char **argv)
   l3ddirectcg_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
      gradtargex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
 
   if(err<eps)
@@ -507,6 +707,44 @@ int main(int argc, char **argv)
 
 
 
+  itest += 1;
+  cprin_message("testing source to source+target");
+  cprin_message("interaction: charges");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+  
+
+
+  pg = 3;
+  pgt = 3;
+  lfmm3d_st_c_h_(&eps, &ns, source, charge, pot, grad, hess,
+      &nt, targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(ntest,potex);
+  dzero(3*ntest,gradex);
+  dzero(6*ntest,hessex);
+  dzero(ntest,pottargex);
+  dzero(3*ntest,gradtargex);
+  dzero(6*ntest,hesstargex);
+  l3ddirectch_(&nd, source, charge, &ns, source, &ntest, potex, 
+     gradex, hessex, &thresh);
+  l3ddirectch_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
+     gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
   itest +=1;
   cprin_message("testing source to source+target");
   cprin_message("interaction: dipoles");
@@ -517,7 +755,7 @@ int main(int argc, char **argv)
   pg = 1;
   pgt = 1;
   lfmm3d_st_d_p_(&eps, &ns, source, dipvec, pot, 
-     &nt, targ, pottarg);
+     &nt, targ, pottarg, &ier);
 
   dzero(ntest,potex);
   dzero(ntest,pottargex);
@@ -527,7 +765,7 @@ int main(int argc, char **argv)
      targ, &ntest, pottargex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -551,7 +789,7 @@ int main(int argc, char **argv)
   pg = 2;
   pgt = 2;
   lfmm3d_st_d_g_(&eps, &ns, source, dipvec, pot, grad, 
-     &nt, targ, pottarg, gradtarg);
+     &nt, targ, pottarg, gradtarg, &ier);
 
   dzero(ntest,potex);
   dzero(3*ntest,gradex);
@@ -562,7 +800,44 @@ int main(int argc, char **argv)
   l3ddirectdg_(&nd, source, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+  itest +=1;
+  cprin_message("testing source to source+target");
+  cprin_message("interaction: dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 3;
+  lfmm3d_st_d_h_(&eps, &ns, source, dipvec, pot, grad, hess,
+     &nt, targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(ntest,potex);
+  dzero(3*ntest,gradex);
+  dzero(6*ntest,hessex);
+  dzero(ntest,pottargex);
+  dzero(3*ntest,gradtargex);
+  dzero(6*ntest,hesstargex);
+  l3ddirectdh_(&nd, source, dipvec, &ns, source, &ntest, 
+     potex, gradex, hessex, &thresh);
+  l3ddirectdh_(&nd, source, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -585,7 +860,7 @@ int main(int argc, char **argv)
   pg = 1;
   pgt = 1;
   lfmm3d_st_cd_p_(&eps, &ns, source, charge, dipvec, pot, 
-     &nt, targ,  pottarg);
+     &nt, targ,  pottarg, &ier);
 
   dzero(ntest,potex);
   dzero(ntest,pottargex);
@@ -595,7 +870,7 @@ int main(int argc, char **argv)
      targ, &ntest, pottargex, &thresh);
 
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -619,7 +894,7 @@ int main(int argc, char **argv)
   pg = 2;
   pgt = 2;
   lfmm3d_st_cd_g_(&eps, &ns, source, charge, dipvec, pot, grad,
-     &nt,targ, pottarg, gradtarg);
+     &nt,targ, pottarg, gradtarg, &ier);
 
   dzero(ntest,potex);
   dzero(3*ntest,gradex);
@@ -630,7 +905,45 @@ int main(int argc, char **argv)
   l3ddirectcdg_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
   comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest +=1;
+  cprin_message("testing source to source+target");
+  cprin_message("interaction: charges + dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 3;
+  lfmm3d_st_cd_h_(&eps, &ns, source, charge, dipvec, pot, grad, hess,
+     &nt,targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(ntest,potex);
+  dzero(3*ntest,gradex);
+  dzero(6*ntest,hessex);
+  dzero(ntest,pottargex);
+  dzero(3*ntest,gradtargex);
+  dzero(6*ntest,hesstargex);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, source, &ntest, 
+     potex, gradex, hessex, &thresh);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -653,6 +966,11 @@ int main(int argc, char **argv)
   free(pottargex);
   free(gradtarg);
   free(gradtargex);
+  free(hess);
+  free(hessex);
+  free(hesstarg);
+  free(hesstargex);
+
 
   nd = 2;
   charge = (double *)malloc(ns*nd*sizeof(double));
@@ -662,11 +980,15 @@ int main(int argc, char **argv)
   potex = (double *)malloc(ntest*nd*sizeof(double));
   grad = (double *)malloc(3*ns*nd*sizeof(double));
   gradex = (double *)malloc(3*ntest*nd*sizeof(double));
+  hess = (double *)malloc(6*ns*nd*sizeof(double));
+  hessex = (double *)malloc(6*ntest*nd*sizeof(double));
 
   pottarg = (double *)malloc(nt*nd*sizeof(double));
   pottargex = (double *)malloc(ntest*nd*sizeof(double));
   gradtarg = (double *)malloc(3*nt*nd*sizeof(double));
   gradtargex = (double *)malloc(3*ntest*nd*sizeof(double));
+  hesstarg = (double *)malloc(6*nt*nd*sizeof(double));
+  hesstargex = (double *)malloc(6*ntest*nd*sizeof(double));
 
 
 
@@ -681,7 +1003,6 @@ int main(int argc, char **argv)
 
   }
 
-
   itest += 1;
   cprin_message("testing source to source");
   cprin_message("interaction: charges");
@@ -692,12 +1013,12 @@ int main(int argc, char **argv)
   pg = 1;
   pgt = 0;
 
-  lfmm3d_s_c_p_vec_(&nd, &eps, &ns, source, charge, pot);
+  lfmm3d_s_c_p_vec_(&nd, &eps, &ns, source, charge, pot, &ier);
 
   dzero(nd*ntest,potex);
   l3ddirectcp_(&nd, source, charge, &ns, source, &ntest, potex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -721,13 +1042,13 @@ int main(int argc, char **argv)
 
   pg = 2;
   pgt = 0;
-  lfmm3d_s_c_g_vec_(&nd, &eps, &ns, source, charge, pot, grad);
+  lfmm3d_s_c_g_vec_(&nd, &eps, &ns, source, charge, pot, grad, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*3*ntest,gradex);
   l3ddirectcg_(&nd, source, charge, &ns, source, &ntest, potex, gradex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
 
   if(err<eps)
@@ -742,6 +1063,39 @@ int main(int argc, char **argv)
 
 
 
+
+  itest += 1;
+  cprin_message("testing source to source");
+  cprin_message("interaction: charges");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+  
+
+  pg = 3;
+  pgt = 0;
+  lfmm3d_s_c_h_vec_(&nd, &eps, &ns, source, charge, pot, grad, hess, &ier);
+
+  dzero(nd*ntest,potex);
+  dzero(nd*3*ntest,gradex);
+  dzero(nd*6*ntest,hessex);
+  l3ddirectch_(&nd, source, charge, &ns, source, &ntest, potex, gradex, 
+    hessex,&thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
   itest +=1;
   cprin_message("testing source to source");
   cprin_message("interaction: dipoles");
@@ -751,13 +1105,13 @@ int main(int argc, char **argv)
 
   pg = 1;
   pgt = 0;
-  lfmm3d_s_d_p_vec_(&nd, &eps, &ns, source, dipvec, pot);
+  lfmm3d_s_d_p_vec_(&nd, &eps, &ns, source, dipvec, pot, &ier);
 
   dzero(nd*ntest,potex);
   l3ddirectdp_(&nd, source, dipvec, &ns, source, &ntest, potex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -780,13 +1134,45 @@ int main(int argc, char **argv)
 
   pg = 2;
   pgt = 0;
-  lfmm3d_s_d_g_vec_(&nd, &eps, &ns, source, dipvec, pot, grad);
+  lfmm3d_s_d_g_vec_(&nd, &eps, &ns, source, dipvec, pot, grad, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*3*ntest,gradex);
   l3ddirectdg_(&nd, source, dipvec, &ns, source, &ntest, potex, gradex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest +=1;
+  cprin_message("testing source to source");
+  cprin_message("interaction: dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 0;
+  lfmm3d_s_d_h_vec_(&nd, &eps, &ns, source, dipvec, pot, grad, hess, &ier);
+
+  dzero(nd*ntest,potex);
+  dzero(nd*3*ntest,gradex);
+  dzero(nd*6*ntest,hessex);
+  l3ddirectdh_(&nd, source, dipvec, &ns, source, &ntest, potex, 
+    gradex, hessex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -808,13 +1194,13 @@ int main(int argc, char **argv)
 
   pg = 1;
   pgt = 0;
-  lfmm3d_s_cd_p_vec_(&nd, &eps, &ns, source, charge, dipvec, pot);
+  lfmm3d_s_cd_p_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, &ier);
 
   dzero(nd*ntest,potex);
   l3ddirectcdp_(&nd, source, charge, dipvec, &ns, source, &ntest, potex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -837,13 +1223,13 @@ int main(int argc, char **argv)
 
   pg = 2;
   pgt = 0;
-  lfmm3d_s_cd_g_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, grad);
+  lfmm3d_s_cd_g_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, grad, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*3*ntest,gradex);
   l3ddirectcdg_(&nd, source, charge, dipvec, &ns, source, &ntest, potex, gradex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -858,6 +1244,38 @@ int main(int argc, char **argv)
 
 
   itest +=1;
+  cprin_message("testing source to source");
+  cprin_message("interaction: charges + dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 0;
+  lfmm3d_s_cd_h_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, grad, hess, &ier);
+
+  dzero(nd*ntest,potex);
+  dzero(nd*3*ntest,gradex);
+  dzero(nd*6*ntest,hessex);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, source, &ntest, 
+    potex, gradex, hessex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest +=1;
   cprin_message("testing source to target");
   cprin_message("interaction: charges");
   cprin_message("output: potentials");
@@ -867,14 +1285,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 1;
 
-  lfmm3d_t_c_p_vec_(&nd, &eps, &ns, source, charge, &nt, targ, pottarg);
+  lfmm3d_t_c_p_vec_(&nd, &eps, &ns, source, charge, &nt, targ, pottarg, &ier);
 
   dzero(nd*ntest,pottargex);
   l3ddirectcp_(&nd, source, charge, &ns, targ, &ntest, 
        pottargex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -899,14 +1317,49 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 2;
   lfmm3d_t_c_g_vec_(&nd, &eps, &ns, source, charge, &nt, targ, 
-      pottarg, gradtarg);
+      pottarg, gradtarg, &ier);
 
   dzero(nd*ntest,pottargex);
   dzero(nd*3*ntest,gradtargex);
   l3ddirectcg_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
      gradtargex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+
+  itest += 1;
+  cprin_message("testing source to target");
+  cprin_message("interaction: charges");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+  
+
+
+  pg = 0;
+  pgt = 3;
+  lfmm3d_t_c_h_vec_(&nd, &eps, &ns, source, charge, &nt, targ, 
+      pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(nd*ntest,pottargex);
+  dzero(nd*3*ntest,gradtargex);
+  dzero(nd*6*ntest,hesstargex);
+  l3ddirectch_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
+     gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
 
   if(err<eps)
@@ -930,14 +1383,14 @@ int main(int argc, char **argv)
 
   pg = 0;
   pgt = 1;
-  lfmm3d_t_d_p_vec_(&nd, &eps, &ns, source, dipvec, &nt, targ, pottarg);
+  lfmm3d_t_d_p_vec_(&nd, &eps, &ns, source, dipvec, &nt, targ, pottarg, &ier);
 
   dzero(nd*ntest,pottargex);
   l3ddirectdp_(&nd, source, dipvec, &ns, 
      targ, &ntest, pottargex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -961,14 +1414,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 2;
   lfmm3d_t_d_g_vec_(&nd, &eps, &ns, source, dipvec, &nt, targ, 
-     pottarg, gradtarg);
+     pottarg, gradtarg, &ier);
 
   dzero(nd*ntest,pottargex);
   dzero(nd*3*ntest,gradtargex);
   l3ddirectdg_(&nd, source, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -981,6 +1434,38 @@ int main(int argc, char **argv)
   cprin_message("========");
 
 
+
+
+  itest +=1;
+  cprin_message("testing source to target");
+  cprin_message("interaction: dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 0;
+  pgt = 3;
+  lfmm3d_t_d_h_vec_(&nd, &eps, &ns, source, dipvec, &nt, targ, 
+     pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(nd*ntest,pottargex);
+  dzero(nd*3*ntest,gradtargex);
+  dzero(nd*6*ntest,hesstargex);
+  l3ddirectdh_(&nd, source, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
   
   itest +=1;
   cprin_message("testing source to target");
@@ -991,14 +1476,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 1;
   lfmm3d_t_cd_p_vec_(&nd, &eps, &ns, source, charge, dipvec, &nt, targ,
-     pottarg);
+     pottarg, &ier);
 
   dzero(nd*ntest,pottargex);
   l3ddirectcdp_(&nd, source, charge, dipvec, &ns, 
      targ, &ntest, pottargex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1022,14 +1507,14 @@ int main(int argc, char **argv)
   pg = 0;
   pgt = 2;
   lfmm3d_t_cd_g_vec_(&nd, &eps, &ns, source, charge, dipvec, &nt, 
-     targ, pottarg, gradtarg);
+     targ, pottarg, gradtarg, &ier);
 
   dzero(nd*ntest,pottargex);
   dzero(nd*3*ntest,gradtargex);
   l3ddirectcdg_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1044,6 +1529,37 @@ int main(int argc, char **argv)
 
 
   itest +=1;
+  cprin_message("testing source to target");
+  cprin_message("interaction: charges + dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 0;
+  pgt = 3;
+  lfmm3d_t_cd_h_vec_(&nd, &eps, &ns, source, charge, dipvec, &nt, 
+     targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(nd*ntest,pottargex);
+  dzero(nd*3*ntest,gradtargex);
+  dzero(nd*6*ntest,hesstargex);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+  itest +=1;
   cprin_message("testing source to source+target");
   cprin_message("interaction: charges");
   cprin_message("output: potentials");
@@ -1054,7 +1570,7 @@ int main(int argc, char **argv)
   pgt = 1;
 
   lfmm3d_st_c_p_vec_(&nd, &eps, &ns, source, charge, pot, 
-    &nt, targ, pottarg);
+    &nt, targ, pottarg, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*ntest,pottargex);
@@ -1063,8 +1579,8 @@ int main(int argc, char **argv)
   l3ddirectcp_(&nd, source, charge, &ns, targ, &ntest, 
        pottargex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1089,7 +1605,7 @@ int main(int argc, char **argv)
   pg = 2;
   pgt = 2;
   lfmm3d_st_c_g_vec_(&nd, &eps, &ns, source, charge, pot, grad, 
-      &nt, targ, pottarg, gradtarg);
+      &nt, targ, pottarg, gradtarg, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*3*ntest,gradex);
@@ -1099,8 +1615,8 @@ int main(int argc, char **argv)
      gradex, &thresh);
   l3ddirectcg_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
      gradtargex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
 
   if(err<eps)
@@ -1115,6 +1631,44 @@ int main(int argc, char **argv)
 
 
 
+  itest += 1;
+  cprin_message("testing source to source+target");
+  cprin_message("interaction: charges");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+  
+
+
+  pg = 3;
+  pgt = 3;
+  lfmm3d_st_c_h_vec_(&nd, &eps, &ns, source, charge, pot, grad, hess,
+      &nt, targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(nd*ntest,potex);
+  dzero(nd*3*ntest,gradex);
+  dzero(nd*6*ntest,hessex);
+  dzero(nd*ntest,pottargex);
+  dzero(nd*3*ntest,gradtargex);
+  dzero(nd*6*ntest,hesstargex);
+  l3ddirectch_(&nd, source, charge, &ns, source, &ntest, potex, 
+     gradex, hessex, &thresh);
+  l3ddirectch_(&nd, source, charge, &ns, targ, &ntest, pottargex, 
+     gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
   itest +=1;
   cprin_message("testing source to source+target");
   cprin_message("interaction: dipoles");
@@ -1125,7 +1679,7 @@ int main(int argc, char **argv)
   pg = 1;
   pgt = 1;
   lfmm3d_st_d_p_vec_(&nd, &eps, &ns, source, dipvec, pot, 
-     &nt, targ, pottarg);
+     &nt, targ, pottarg, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*ntest,pottargex);
@@ -1134,8 +1688,8 @@ int main(int argc, char **argv)
   l3ddirectdp_(&nd, source, dipvec, &ns, 
      targ, &ntest, pottargex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1159,7 +1713,7 @@ int main(int argc, char **argv)
   pg = 2;
   pgt = 2;
   lfmm3d_st_d_g_vec_(&nd, &eps, &ns, source, dipvec, pot, grad, 
-     &nt, targ, pottarg, gradtarg);
+     &nt, targ, pottarg, gradtarg, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*3*ntest,gradex);
@@ -1169,8 +1723,45 @@ int main(int argc, char **argv)
      potex, gradex, &thresh);
   l3ddirectdg_(&nd, source, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
+  itest +=1;
+  cprin_message("testing source to source+target");
+  cprin_message("interaction: dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 3;
+  lfmm3d_st_d_h_vec_(&nd, &eps, &ns, source, dipvec, pot, grad, hess,
+     &nt, targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(nd*ntest,potex);
+  dzero(nd*3*ntest,gradex);
+  dzero(nd*6*ntest,hessex);
+  dzero(nd*ntest,pottargex);
+  dzero(nd*3*ntest,gradtargex);
+  dzero(nd*6*ntest,hesstargex);
+  l3ddirectdh_(&nd, source, dipvec, &ns, source, &ntest, 
+     potex, gradex, hessex, &thresh);
+  l3ddirectdh_(&nd, source, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1193,7 +1784,7 @@ int main(int argc, char **argv)
   pg = 1;
   pgt = 1;
   lfmm3d_st_cd_p_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, 
-     &nt, targ,  pottarg);
+     &nt, targ,  pottarg, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*ntest,pottargex);
@@ -1202,8 +1793,8 @@ int main(int argc, char **argv)
   l3ddirectcdp_(&nd, source, charge, dipvec, &ns, 
      targ, &ntest, pottargex, &thresh);
 
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1227,7 +1818,7 @@ int main(int argc, char **argv)
   pg = 2;
   pgt = 2;
   lfmm3d_st_cd_g_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, grad,
-     &nt,targ, pottarg, gradtarg);
+     &nt,targ, pottarg, gradtarg, &ier);
 
   dzero(nd*ntest,potex);
   dzero(nd*3*ntest,gradex);
@@ -1237,8 +1828,8 @@ int main(int argc, char **argv)
      potex, gradex, &thresh);
   l3ddirectcdg_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
      pottargex, gradtargex, &thresh);
-  comp_err_lap(nd*ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
-       gradtarg,gradtargex,&err);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
 
   if(err<eps)
   {
@@ -1251,6 +1842,45 @@ int main(int argc, char **argv)
   cprin_message("========");
 
 
+
+
+  itest +=1;
+  cprin_message("testing source to source+target");
+  cprin_message("interaction: charges + dipoles");
+  cprin_message("output: hessians");
+  cprin_skipline(2);
+
+
+  pg = 3;
+  pgt = 3;
+  lfmm3d_st_cd_h_vec_(&nd, &eps, &ns, source, charge, dipvec, pot, grad, hess,
+     &nt,targ, pottarg, gradtarg, hesstarg, &ier);
+
+  dzero(nd*ntest,potex);
+  dzero(nd*3*ntest,gradex);
+  dzero(nd*6*ntest,hessex);
+  dzero(nd*ntest,pottargex);
+  dzero(nd*3*ntest,gradtargex);
+  dzero(nd*6*ntest,hesstargex);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, source, &ntest, 
+     potex, gradex, hessex, &thresh);
+  l3ddirectcdh_(&nd, source, charge, dipvec, &ns, targ, &ntest, 
+     pottargex, gradtargex, hesstargex, &thresh);
+  comp_err_lap(ntest,pg,pgt,pot,potex,pottarg,pottargex,grad,gradex,
+       gradtarg,gradtargex,hess,hessex,hesstarg,hesstargex,&err);
+
+  if(err<eps)
+  {
+    ipass[itest] = 1;
+  }
+
+  cprind("l2 rel error=",&err,1);
+
+  cprin_skipline(2);
+  cprin_message("========");
+
+
+
   free(charge);
   free(dipvec);
   free(pot);
@@ -1261,6 +1891,11 @@ int main(int argc, char **argv)
   free(pottargex);
   free(gradtarg);
   free(gradtargex);
+  free(hess);
+  free(hessex);
+  free(hesstarg);
+  free(hesstargex);
+
 
 
   int isum = 0;
@@ -1269,7 +1904,7 @@ int main(int argc, char **argv)
     isum = isum + ipass[i];
   }
 
-  cprinf("Number of tests out of 36 passed =",&isum,1);
+  cprinf("Number of tests out of 54 passed =",&isum,1);
 
   return 0;
 }  

@@ -8,7 +8,7 @@
 
       double precision eps
       double complex eye,zk
-      integer i,j,k,ntest,nd,idim
+      integer i,j,k,ntest,nd,idim,ier
       integer ifcharge,ifdipole,ifpgh,ifpghtarg
       double precision err,hkrand
       integer ipass(18),len1,ntests,isum
@@ -26,8 +26,8 @@ c
 
       zk = 1.2d0 + eye*0.02d0
 
-      ns = 2000
-      nt = 1999
+      ns = 4000
+      nt = 3999
       
       ntest = 10
 
@@ -38,11 +38,12 @@ c
 
       allocate(pottarg(nd,nt))
       allocate(gradtarg(nd,3,nt))
-      eps = 0.5d-9
+      eps = 0.51d-3
+
 
       write(*,*) "=========================================="
       write(*,*) "Testing suite for hfmm3d_vec"
-      write(*,'(a,e11.5)') "Requested precision = ",eps
+      write(*,'(a,e11.4)') "Requested precision = ",eps
 
       open(unit=33,file='print_testres.txt',access='append')
 
@@ -103,7 +104,7 @@ c
        write(6,*) 
 
        call hfmm3d_s_c_p_vec(nd,eps,zk,ns,source,charge,
-     1      pot)
+     1      pot,ier)
 
        ifcharge = 1
        ifdipole = 0
@@ -138,7 +139,7 @@ c
        write(6,*) 
 
        call hfmm3d_s_c_g_vec(nd,eps,zk,ns,source,charge,
-     1      pot,grad)
+     1      pot,grad,ier)
 
        ifcharge = 1
        ifdipole = 0
@@ -171,7 +172,7 @@ c
        write(6,*) 
 
        call hfmm3d_s_d_p_vec(nd,eps,zk,ns,source,dipvec,
-     1      pot)
+     1      pot,ier)
 
        ifcharge = 0
        ifdipole = 1
@@ -203,7 +204,7 @@ c
        write(6,*) 
 
        call hfmm3d_s_d_g_vec(nd,eps,zk,ns,source,dipvec,
-     1      pot,grad)
+     1      pot,grad,ier)
 
        ifcharge = 0
        ifdipole = 1
@@ -234,7 +235,7 @@ c
        write(6,*) 
 
        call hfmm3d_s_cd_p_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,pot)
+     1      dipvec,pot,ier)
 
        ifcharge = 1
        ifdipole = 1
@@ -266,7 +267,7 @@ c
        write(6,*) 
 
        call hfmm3d_s_cd_g_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,pot,grad)
+     1      dipvec,pot,grad,ier)
 
        ifcharge = 1
        ifdipole = 1
@@ -299,7 +300,7 @@ c
        write(6,*) 
 
        call hfmm3d_t_c_p_vec(nd,eps,zk,ns,source,charge,
-     1      nt,targ,pottarg)
+     1      nt,targ,pottarg,ier)
 
        ifcharge = 1
        ifdipole = 0
@@ -331,7 +332,7 @@ c
        write(6,*) 
 
        call hfmm3d_t_c_g_vec(nd,eps,zk,ns,source,charge,
-     1      nt,targ,pottarg,gradtarg)
+     1      nt,targ,pottarg,gradtarg,ier)
 
        ifcharge = 1
        ifdipole = 0
@@ -364,7 +365,7 @@ c
        write(6,*) 
 
        call hfmm3d_t_d_p_vec(nd,eps,zk,ns,source,dipvec,
-     1      nt,targ,pottarg)
+     1      nt,targ,pottarg,ier)
 
        ifcharge = 0
        ifdipole = 1
@@ -396,7 +397,7 @@ c
        write(6,*) 
 
        call hfmm3d_t_d_g_vec(nd,eps,zk,ns,source,dipvec,
-     1      nt,targ,pottarg,gradtarg)
+     1      nt,targ,pottarg,gradtarg,ier)
 
        ifcharge = 0
        ifdipole = 1
@@ -427,7 +428,7 @@ c
        write(6,*) 
 
        call hfmm3d_t_cd_p_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,nt,targ,pottarg)
+     1      dipvec,nt,targ,pottarg,ier)
 
        ifcharge = 1
        ifdipole = 1
@@ -459,7 +460,7 @@ c
        write(6,*) 
 
        call hfmm3d_t_cd_g_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,nt,targ,pottarg,gradtarg)
+     1      dipvec,nt,targ,pottarg,gradtarg,ier)
 
        ifcharge = 1
        ifdipole = 1
@@ -490,7 +491,7 @@ c
        write(6,*) 
 
        call hfmm3d_st_c_p_vec(nd,eps,zk,ns,source,charge,
-     1      pot,nt,targ,pottarg)
+     1      pot,nt,targ,pottarg,ier)
 
        ifcharge = 1
        ifdipole = 0
@@ -522,7 +523,7 @@ c
        write(6,*) 
 
        call hfmm3d_st_c_g_vec(nd,eps,zk,ns,source,charge,
-     1      pot,grad,nt,targ,pottarg,gradtarg)
+     1      pot,grad,nt,targ,pottarg,gradtarg,ier)
 
        ifcharge = 1
        ifdipole = 0
@@ -555,7 +556,7 @@ c
        write(6,*) 
 
        call hfmm3d_st_d_p_vec(nd,eps,zk,ns,source,dipvec,
-     1      pot,nt,targ,pottarg)
+     1      pot,nt,targ,pottarg,ier)
 
        ifcharge = 0
        ifdipole = 1
@@ -587,7 +588,7 @@ c
        write(6,*) 
 
        call hfmm3d_st_d_g_vec(nd,eps,zk,ns,source,dipvec,
-     1      pot,grad,nt,targ,pottarg,gradtarg)
+     1      pot,grad,nt,targ,pottarg,gradtarg,ier)
 
        ifcharge = 0
        ifdipole = 1
@@ -618,7 +619,7 @@ c
        write(6,*) 
 
        call hfmm3d_st_cd_p_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,pot,nt,targ,pottarg)
+     1      dipvec,pot,nt,targ,pottarg,ier)
 
        ifcharge = 1
        ifdipole = 1
@@ -650,7 +651,7 @@ c
        write(6,*) 
 
        call hfmm3d_st_cd_g_vec(nd,eps,zk,ns,source,charge,
-     1      dipvec,pot,grad,nt,targ,pottarg,gradtarg)
+     1      dipvec,pot,grad,nt,targ,pottarg,gradtarg,ier)
 
        ifcharge = 1
        ifdipole = 1
