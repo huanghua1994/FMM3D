@@ -54,6 +54,11 @@ int main(int argc, char **argv)
     cprin_init("stdout", "fort.13");
     cprin_skipline(2);
 
+    if (argc < 3)
+    {
+        printf("Usage : %s num_point eps input_file (csv or bin, optional)\n", argv[0]);
+        return 0;
+    }
     int npoint = atoi(argv[1]);
     double eps = atof(argv[2]);
     printf("Number of points = %d, eps = %e\n", npoint, eps);
@@ -62,7 +67,7 @@ int main(int argc, char **argv)
     double *charge = (double*) malloc(sizeof(double) * npoint);
     double *poten  = (double*) malloc(sizeof(double) * npoint);
     int need_gen = 1;
-    if (argc >= 3)
+    if (argc >= 4)
     {
         if (strstr(argv[3], ".csv") != NULL)
         {
@@ -92,16 +97,16 @@ int main(int argc, char **argv)
         for (int i = 0; i < 3 * npoint; i++) coord[i] = rand01();
         printf(" done.\n");
     }
-    for (int i = 0; i < npoint; i++) charge[i] = rand01();
+    for (int i = 0; i < npoint; i++) charge[i] = rand01() - 0.5;
 
 
     printf("[INFO] lfmm3d_t_c_p: file coordinate input, source = target\n");
-    lfmm3d_t_c_p_(&eps, &npoint, coord, charge, &npoint, coord, poten);
+    int ierr;
+    lfmm3d_t_c_p_(&eps, &npoint, coord, charge, &npoint, coord, poten, &ierr);
     for (int k = 0; k < 5; k++)
     {
-        double st = get_wtime_sec();
-        lfmm3d_t_c_p_(&eps, &npoint, coord, charge, &npoint, coord, poten);
-        double et = get_wtime_sec();
+        lfmm3d_t_c_p_(&eps, &npoint, coord, charge, &npoint, coord, poten, &ierr);
+        printf("\n ===== Test %d done =====\n\n", k);
     }
     
     double *coord1 = (double*) malloc(sizeof(double) * npoint * 3);

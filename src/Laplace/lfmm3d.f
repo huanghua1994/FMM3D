@@ -113,7 +113,7 @@ c
        double precision pot(nd,*),grad(nd,3,*),hess(nd,6,*)
        double precision pottarg(nd,*),gradtarg(nd,3,*),hesstarg(nd,6,*)
 
-       double precision timeinfo(6)
+       double precision timeinfo(7)
 
 c
 cc       tree variables
@@ -178,7 +178,7 @@ c
 
       call cpu_time(time1)
 C$     time1=omp_get_wtime()      
-      ifprint=0
+      ifprint=1
 
 c
 cc        figure out tree structure
@@ -188,8 +188,9 @@ cc         set criterion for box subdivision
 c
       call lndiv(eps,nsource,ntarg,ifcharge,ifdipole,ifpgh,
      1   ifpghtarg,ndiv,idivflag) 
-
-
+c
+c    2022-02-26, Hua: use ndiv=400 for comparison
+      ndiv = 400
 c
 c       turn on computation of list 1
 c
@@ -480,11 +481,6 @@ C$     time2=omp_get_wtime()
      1   call prin2('time before fmm main=*',time2-time1,1)
 c     Call main fmm routine
 c
-c       Hua: record the execution time before lfmm3dmain
-        call cpu_time(time4)
-C$      time4=omp_get_wtime()
-        if( ifprint .eq. 1 ) call prin2('time before fmm main=*',
-     1   time4-time3,1)
 c
 c
       call cpu_time(time1)
@@ -591,7 +587,7 @@ c
 
       double precision thresh
        
-      double precision timeinfo(6)
+      double precision timeinfo(7)
       double precision centers(3,nboxes)
 
       integer isep,iper
@@ -735,7 +731,11 @@ c     Prints timing breakdown, list information,
 c     and other things if ifprint=2.
 c       
       ifprint=1
-      
+c
+      if(ifprint.ge.1)
+     $   call prinf('=== STEP 0 init===*',i,0)
+      call cpu_time(time1)
+c      
 c
 c   initialize various tree lists
 c
@@ -864,7 +864,7 @@ c
       bigint = bigint*6
       bigint = bigint*nexptotp*nd
 c
-      if(ifprint.ge.1) print *, "mexp memory=",bigint/1.0d9
+      if(ifprint.ge.1) print *, "mexp memory=",16.0*bigint/1.0d9,"GB"
 c
       allocate(mexp(nd,nexptotp,nboxes,6),stat=iert)
       if(iert.ne.0) then
@@ -933,7 +933,7 @@ C$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,j,k,idim)
 C$OMP END PARALLEL DO
 
 c       
-      do i=1,6
+      do i=1,7
         timeinfo(i)=0
       enddo
 
@@ -979,9 +979,6 @@ c    initialize legendre function evaluation routines
 c
 c     count number of boxes are in list4
       lca = 4*nmax
-      if(ifprint.ge.1)
-     $   call prinf('=== STEP 0 list4===*',i,0)
-      call cpu_time(time1)
 C$    time1=omp_get_wtime()
       do ilev=1,nlevels-1
          do ibox=laddr(1,ilev),laddr(2,ilev)
@@ -1178,8 +1175,7 @@ C$OMP END PARALLEL DO
 
       call cpu_time(time2)
 C$    time2=omp_get_wtime()
-      if(ifprint.ge.1) print *,"mexp list4 time:",time2-time1
-      timeinfo(3)=time2-time1
+      timeinfo(1)=time2-time1
 c     end of count number of boxes are in list4
 c
 
@@ -1266,7 +1262,7 @@ C$OMP END PARALLEL DO
 
       call cpu_time(time2)
 C$    time2=omp_get_wtime()
-      timeinfo(1)=time2-time1
+      timeinfo(2)=time2-time1
 
       lca = 4*nmax
 
@@ -1301,7 +1297,7 @@ C$OMP END PARALLEL DO
 
       call cpu_time(time2)
 C$    time2=omp_get_wtime()
-      timeinfo(2)=time2-time1
+      timeinfo(3)=time2-time1
 
       if(ifprint.ge.1)
      $    call prinf('=== Step 3 (mp to loc+formta+mpeval) ===*',i,0)
@@ -1857,7 +1853,7 @@ C$OMP END PARALLEL DO
       deallocate(tmp,mptmp)
       call cpu_time(time2)
 C$        time2=omp_get_wtime()
-      timeinfo(3) = timeinfo(3) + time2-time1
+      timeinfo(4) = time2-time1
 
 
       if(ifprint.ge.1)
@@ -1905,11 +1901,11 @@ C$OMP END PARALLEL DO
       enddo
       call cpu_time(time2)
 C$        time2=omp_get_wtime()
-      timeinfo(4) = time2-time1
+      timeinfo(5) = time2-time1
 
 
       if(ifprint.ge.1)
-     $    call prinf('=== step 5 (eval lo) ===*',i,0)
+     $    call prinf('=== Step 5 (eval lo) ===*',i,0)
 
 c     ... step 6, evaluate all local expansions
 c
@@ -2066,7 +2062,7 @@ C$OMP END PARALLEL DO
     
       call cpu_time(time2)
 C$        time2=omp_get_wtime()
-      timeinfo(5) = time2 - time1
+      timeinfo(6) = time2 - time1
 
 
       if(ifprint .ge. 1)
@@ -2552,10 +2548,10 @@ C$OMP END PARALLEL DO
  
       call cpu_time(time2)
 C$        time2=omp_get_wtime()
-      timeinfo(6) = time2-time1
-      if(ifprint.ge.1) call prin2('timeinfo=*',timeinfo,6)
+      timeinfo(7) = time2-time1
+      if(ifprint.ge.1) call prin2('timeinfo=*',timeinfo,7)
       d = 0
-      do i = 1,6
+      do i = 1,7
          d = d + timeinfo(i)
       enddo
 
