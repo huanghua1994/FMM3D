@@ -41,9 +41,10 @@ c
 c
       data eye/(0.0d0,1.0d0)/
 c
+      call prini(6,13)
       done=1
       pi=4.0*atan(done)
-      zk = 0.2d0
+      zk = 51.2d0
 
       write(*,*) "=========================================="
       write(*,*) "Testing suite for helmrouts3d"
@@ -58,6 +59,10 @@ c
       bsize = 1.0d0
       rscale1 = abs(zk)*bsize/4
       rscale2 = abs(zk)*bsize/2
+
+      if(rscale1.gt.1) rscale1 = 1
+      if(rscale2.gt.2) rscale2 = 1
+
 
 cc      rscale1 = 1
 cc      rscale2 = 1
@@ -134,6 +139,7 @@ c
       call h3dterms(bsize, zk, eps, nterms2)
       call h3dterms(bsize/2, zk, eps, nterms3)
 
+
       nlege = 100
       lw7 = 100000
       call ylgndrfwini(nlege,wlege,lw7,lused7)
@@ -165,7 +171,7 @@ c
      1      fld,wlege,nlege,thresh)
 
       err_exp(1) = 10*max(rconv1**(nterms),eps)
-      write(*,'(a,e11.5)') 'Testing formmp and mpeval, expected error='
+      write(*,'(a,e11.4)') 'Testing formmp and mpeval, expected error='
      1   ,err_exp(1)
       call errprint(pot,opot,fld,ofld,errs(1,1))
       if(max(errs(1,1),errs(2,1)).lt.err_exp(1)) ipass(1) = 1
@@ -176,8 +182,9 @@ c
 c
 c    mpmp shift
 c
-      radius = sqrt(3.0d0)/2.0d0
+      radius = sqrt(3.0d0)/2.0d0*bsize
       allocate(mpole2(0:nterms2,-nterms2:nterms2))
+
       call mpzero(nd,mpole2,nterms2)
       call h3dmpmp(nd,zk,rscale1,c0,mpole1,nterms,
      1       rscale2,c1,mpole2,nterms2,radius,xnodes,wts,nquad)
@@ -187,11 +194,13 @@ c
       fld(2) = 0
       fld(3) = 0
       nd = 1
-      call h3dmpevalg(nd,zk,rscale2,c1,mpole2,nterms,ztrg,nt,pot,
+
+      call h3dmpevalg(nd,zk,rscale2,c1,mpole2,nterms2,ztrg,nt,pot,
      1      fld,wlege,nlege,thresh)
 
+
       err_exp(2) = 10*max(rconv2**(nterms),eps)
-      write(*,'(a,e11.5)') 'Testing mpmp, expected error='
+      write(*,'(a,e11.4)') 'Testing mpmp, expected error='
      1   ,err_exp(2)
       call errprint(pot,opot,fld,ofld,errs(1,2))
 
@@ -212,6 +221,7 @@ c
       call h3dmploc(nd,zk,rscale2,c1,mpole2,nterms2,
      1      rscale2,c2,locexp2,nterms2,radius,xnodes,wts,nquad)
 
+
       pot = 0
       fld(1) = 0
       fld(2) = 0
@@ -221,7 +231,7 @@ c
      1      pot,fld,wlege,nlege)
 
       err_exp(3) = 10*max(rconv3**(nterms),eps)
-      write(*,'(a,e11.5)') 'Testing mploc, expected error='
+      write(*,'(a,e11.4)') 'Testing mploc, expected error='
      1   ,err_exp(3)
       call errprint(pot,opot,fld,ofld,errs(1,3))
       if(max(errs(1,3),errs(2,3)).lt.err_exp(3)) ipass(3) = 1
@@ -248,7 +258,7 @@ c
      1      pot,fld,wlege,nlege)
 
       err_exp(4) = 10*max(rconv3**(nterms),eps)
-      write(*,'(a,e11.5)') 'Testing locloc, expected error='
+      write(*,'(a,e11.4)') 'Testing locloc, expected error='
      1   ,err_exp(4)
       call errprint(pot,opot,fld,ofld,errs(1,4))
       if(max(errs(1,4),errs(2,4)).lt.err_exp(4)) ipass(4) = 1
@@ -272,7 +282,7 @@ c    create local exp from sources
      1      pot,fld,wlege,nlege)
 
       err_exp(5) = 10*max(rconv3**(nterms),eps)
-      write(*,'(a,e11.5)') 'Testing formta and taeval, expected error='
+      write(*,'(a,e11.4)') 'Testing formta and taeval, expected error='
      1   ,err_exp(5)
       call errprint(pot,opot,fld,ofld,errs(1,5))
       if(max(errs(1,5),errs(2,5)).lt.err_exp(5)) ipass(5) = 1
@@ -316,7 +326,7 @@ C
       ddd = sqrt(ddd)
 
       err1 = abs(pot-opot)/abs(opot)
-      write(*,'(a,e11.5,a,e11.5)') 
+      write(*,'(a,e11.4,a,e11.4)') 
      1     'pot error=',err1,'   grad error=',err/ddd
 
       errs(1) = err1 

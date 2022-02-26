@@ -1,6 +1,9 @@
 __pycache__
 build
 dist
+res
+docs/_build
+make.inc
 *.so
 *.egg-info
 *.o
@@ -8,4 +11,14 @@ dist
 fort.*
 int2
 *.save*
+*_save*
 *.txt
+lib-static/*
+lib/*
+*.pyc
+*int2*
+*.mex*
+*debug*
+*.log
+*.sh
+sbatch*

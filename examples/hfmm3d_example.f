@@ -7,7 +7,7 @@
 
       double precision eps
       double complex eye,zk
-      integer i,j,k
+      integer i,j,k,ier
       double precision hkrand
       
 
@@ -29,7 +29,7 @@ c
       zk = 2.2d0
       zk = 3.1418
 
-      ns = 20000
+      ns = 30000
       
 
       allocate(source(3,ns))
@@ -51,7 +51,7 @@ c
 
 
 c
-cc      generate sources uniformly in the unit cube 
+cc      generate sources with distribution unif^2 
 c
 c
       do i=1,ns
@@ -69,7 +69,7 @@ c
 
 
       call hfmm3d_s_c_g(eps,zk,ns,source,charge,
-     1      pot,grad)
+     1      pot,grad,ier)
       call prin2("pot at sources=*",pot,12)
       call prin2("grad at sources=*",grad,12)
 
